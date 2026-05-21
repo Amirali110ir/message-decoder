@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
 import json
 import re
 from typing import Any
@@ -9,28 +9,59 @@ import httpx
 
 from app.config import get_settings
 from app.schemas import FreeDecodeIn, FreeDecodeOutput, LensLabel, PaidDecodeOutput, ReplyOption, SafetyOutput
+from app.services.cache import get_cached_response, set_cached_response
+from app.services.rule_engine import (
+    RULE_ENGINE_VERSION,
+    Classification,
+    classification_payload,
+    classify,
+    paid_reply_playbook,
+)
 from app.utils import has_sensitive_info
 
 
-PROMPT_VERSION = "message-decoder-system-v0.1"
+PROMPT_VERSION = "message-decoder-system-v0.2"
 MODEL_VERSION = "mock-v0.1"
+OUTPUT_SCHEMA_VERSION = "decode-schema-v0.1"
 
 SYSTEM_PROMPT = """
-تو Message Decoder by NeuroLens هستی؛ یک ابزار فارسی‌زبان برای رمزگشایی پیام‌ها، چت‌ها و ایمیل‌های مبهم، سرد، تند، احساسی، کنایه‌آمیز یا حرفه‌ای.
+تو Message Decoder by NeuroLens هستی.
 
-هدف تو این است که قبل از اینکه کاربر جواب بدهد، به او کمک کنی بفهمد پشت پیام طرف مقابل چه نیاز، ترس، فشار، سوءتفاهم یا حساسیتی پنهان است و بعد مسیر پاسخ کم‌ریسک‌تر را پیشنهاد بدهی.
+تو یک ابزار فارسی‌زبان برای رمزگشایی پیام‌ها، چت‌ها و ایمیل‌های مبهم، سرد، تند، احساسی، کنایه‌آمیز یا حرفه‌ای هستی.
 
-تو روان‌درمانگر، پزشک، تشخیص‌دهنده اختلال، ذهن‌خوان یا قاضی نیت قطعی آدم‌ها نیستی. از روی یک پیام نمی‌توانی سطح واقعی هورمون، اختلال شخصیت، نیت قطعی یا سلامت روان کسی را تشخیص بدهی.
+وعده محصول: قبل از جواب دادن، بفهم پشت پیامش چیست و جواب کم‌ریسک‌تر بگیر.
 
-سه هورمون در این محصول فقط به عنوان لنز رفتاری و روان‌زیستی استفاده می‌شوند، نه به عنوان تشخیص زیستی واقعی:
-۱. هدف و کنترل — Dopamine Lens
-۲. امنیت و اعتماد — Oxytocin Lens
-۳. شأن و احترام — Serotonin Lens
+هدف اصلی تو کمک به کاربر برای فهمیدن نیاز، ترس، فشار، سوءتفاهم، حساسیت یا ریسک پنهان پشت پیام طرف مقابل است. هدف دوم ساختن پاسخ بهتر، کم‌ریسک‌تر، انسانی‌تر، تعیین‌کننده‌تر مرز روابط یا حرفه‌ای‌تر است.
 
-هرگز نگو اکسی‌توسین طرف پایین است، دوپامین طرف بالاست، این آدم اختلال دارد، این فرد narcissist است، یا قطعاً قصدش کنترل است.
-به جای آن از «احتمالاً»، «ممکن است»، «نشانه‌هایی از» و «برداشت محتاطانه» استفاده کن.
-اگر پیام خطرناک است، safety-first باش. اگر کاربر درخواست کنترل، guilt-trip یا آسیب کرد، به پاسخ سالم و قاطع redirect کن.
-خروجی باید فارسی طبیعی، قابل نمایش در UI، و JSON معتبر مطابق schema خواسته‌شده باشد.
+محدودیت‌های مهم:
+- از روی متن، سطح واقعی هورمون تشخیص نده.
+- تشخیص روانشناختی، پزشکی یا شخصیتی نده.
+- برچسب‌هایی مثل narcissist، toxic، bipolar، اختلال شخصیت، افسرده، وابسته یا کنترل‌گر را به عنوان حکم قطعی استفاده نکن.
+- درباره نیت طرف مقابل قطعی حرف نزن.
+- از عبارت‌هایی مثل «احتمالاً»، «ممکن است»، «نشانه‌هایی از»، «برداشت محتاطانه» استفاده کن.
+- سه هورمون را فقط به عنوان لنز رفتاری توضیح بده، نه واقعیت آزمایشگاهی.
+
+سه لنز اصلی:
+۱. لنز هدف و کنترل — Dopamine Lens: هدف، نتیجه، کنترل، عجله، ناکامی، فشار برای اقدام. سؤال پنهان: «چرا چیزی که می‌خواهم جلو نمی‌رود؟»
+۲. لنز امنیت و اعتماد — Oxytocin Lens: امنیت عاطفی، اعتماد، نزدیکی، وفاداری، دیده‌شدن، ترس از بی‌اهمیت شدن. سؤال پنهان: «آیا هنوز برای تو مهمم و می‌توانم به تو اعتماد کنم؟»
+۳. لنز شأن و احترام — Serotonin Lens: شأن، احترام، جایگاه، اعتبار، تحقیر، مقایسه، قضاوت. سؤال پنهان: «آیا من دیده شدم، محترم شمرده شدم و جایگاهم حفظ شد؟»
+
+فرآیند تحلیل:
+۱. اول خطر را بررسی کن. اگر تهدید، خشونت، خودآسیب‌رسانی، اخاذی، stalking، اجبار، تهدید جنسی، تهدید فیزیکی یا خطر جدی بود، Safety Mode فعال است: پاسخ عاشقانه یا استراتژیک عادی تولید نکن.
+۲. لحن پیام را تشخیص بده: سرد، تند، کنایه‌آمیز، passive-aggressive، رسمی، تهدیدکننده، ناراحت، قربانی‌گونه، کنترل‌گر، مبهم، دفاعی، شرمنده‌کننده یا تعیین‌کننده مرز روابط.
+۳. لنز غالب و فرعی را انتخاب کن.
+۴. نیاز پنهان احتمالی، ریسک پاسخ اشتباه، جهت پاسخ بهتر، احتمال خطا و برداشت جایگزین را توضیح بده.
+۵. اگر paid است، پاسخ‌ها باید واقعاً متنوع باشند: نرم، تعیین‌کننده مرز روابط، کوتاه، هدف‌محور، و اگر context کاری/اکس/پایان مکالمه بود نسخه مخصوص همان موقعیت.
+۶. اگر کاربر درخواست manipulative داد، درخواست را به پاسخ سالم، قاطع، بالغ و استراتژیک تبدیل کن.
+
+لحن پاسخ‌ها:
+- رابطه عاطفی: انسانی، گرم، واضح، بدون التماس.
+- اکس: محترمانه، تعیین‌کننده مرز روابط، بدون باز کردن بی‌دلیل رابطه.
+- کار و همکار: حرفه‌ای، کوتاه، مسئولیت‌پذیر، بدون دفاع اضافه.
+- خانواده: محترمانه، احساسی اما تعیین‌کننده مرز روابط.
+- دوست: صمیمی، روشن، بدون حمله.
+
+پاسخ‌ها باید فارسی طبیعی، قابل ارسال، غیررباتی و JSON معتبر مطابق schema خواسته‌شده باشند.
 """.strip()
 
 
@@ -39,63 +70,6 @@ LENSES = {
     "oxytocin": LensLabel(fa="امنیت و اعتماد", en="Oxytocin Lens", key="oxytocin"),
     "serotonin": LensLabel(fa="شأن و احترام", en="Serotonin Lens", key="serotonin"),
 }
-
-
-@dataclass
-class Classification:
-    safety_label: str
-    dominant_lens: str
-    secondary_lenses: list[str]
-    confidence: str
-    manipulative: bool = False
-
-
-SAFETY_TERMS = [
-    "میام دم خونتون",
-    "میام دم خونه",
-    "می‌کشمت",
-    "میکشمت",
-    "خودمو میکشم",
-    "خودم را می‌کشم",
-    "آبروریزی",
-    "تهدید",
-    "لو میدم",
-    "پخش می‌کنم",
-]
-MANIPULATION_TERMS = ["حس گناه", "کنترلش کنم", "برگرده", "ضربه بزنم", "وابسته‌اش کنم"]
-DOPAMINE_TERMS = ["چرا هنوز", "تا امشب", "قرار بود", "پیگیری", "انجامش ندادی", "منتظر", "مشخصش کن"]
-OXYTOCIN_TERMS = ["برات مهم نیست", "هر جور راحتی", "تنها", "دوستم نداری", "بی‌اهمیت", "seen", "سین"]
-SEROTONIN_TERMS = ["ارزش", "احترام", "فقط خودت", "خرابم کردی", "حق با توئه", "کم نذاشتم", "تحقیر"]
-
-
-def classify(payload: FreeDecodeIn) -> Classification:
-    combined = f"{payload.message_text}\n{payload.optional_context or ''}".lower()
-    if any(term in combined for term in SAFETY_TERMS):
-        return Classification("high_risk", "serotonin", [], "بالا")
-
-    manipulative = any(term in combined for term in MANIPULATION_TERMS)
-    scores = {
-        "dopamine": sum(term in combined for term in DOPAMINE_TERMS),
-        "oxytocin": sum(term in combined for term in OXYTOCIN_TERMS),
-        "serotonin": sum(term in combined for term in SEROTONIN_TERMS),
-    }
-    goal_bias = {
-        "professional_reply": "dopamine",
-        "make_them_accountable": "dopamine",
-        "avoid_needy": "oxytocin",
-        "set_boundary": "serotonin",
-        "end_conversation": "serotonin",
-    }.get(payload.user_goal)
-    if goal_bias:
-        scores[goal_bias] += 1
-
-    dominant = max(scores, key=scores.get)
-    if scores[dominant] == 0:
-        dominant = "oxytocin" if payload.relationship_type in ("romantic", "ex", "family") else "dopamine"
-
-    secondary = [key for key, value in scores.items() if key != dominant and value > 0]
-    confidence = "بالا" if scores[dominant] >= 2 else "متوسط"
-    return Classification("manipulation_redirect" if manipulative else "normal", dominant, secondary, confidence, manipulative)
 
 
 def safety_output() -> SafetyOutput:
@@ -107,9 +81,9 @@ def safety_output() -> SafetyOutput:
     )
 
 
-def free_decode(payload: FreeDecodeIn, classification: Classification) -> FreeDecodeOutput:
+async def free_decode(payload: FreeDecodeIn, classification: Classification) -> FreeDecodeOutput:
     if _use_ai_provider():
-        ai_output = _free_decode_with_ai(payload, classification)
+        ai_output = await _free_decode_with_ai(payload, classification)
         if ai_output is not None:
             return ai_output
 
@@ -142,44 +116,117 @@ def free_decode(payload: FreeDecodeIn, classification: Classification) -> FreeDe
     if classification.manipulative:
         needs[classification.dominant_lens] = "درخواست فعلی رنگ کنترل یا فشار روانی دارد؛ مسیر سالم‌تر این است که احساس و مرزت را واضح بگویی، نه اینکه حس گناه بسازی."
 
+    why_text = why[classification.dominant_lens]
+    if classification.evidence_terms:
+        why_text = f"{why_text} نشانه‌های برجسته: {'، '.join(classification.evidence_terms)}."
+    if classification.tones:
+        why_text = f"{why_text} لحن احتمالی پیام: {'، '.join(classification.tones)}."
+
     return FreeDecodeOutput(
         dominant_lens=lens,
         dominant_lens_explanation=explanations[classification.dominant_lens]
         + " این به معنی بالا یا پایین بودن واقعی هورمون طرف مقابل نیست؛ فقط یک لنز رفتاری برای خواندن پیام است.",
-        why_this_lens=why[classification.dominant_lens],
+        why_this_lens=why_text,
         secondary_lenses=[LENSES[key] for key in classification.secondary_lenses],
-        likely_underlying_need=needs[classification.dominant_lens],
-        conversation_risk=risks[classification.dominant_lens],
-        recommended_direction=directions[classification.dominant_lens],
+        likely_underlying_need=classification.hidden_need or needs[classification.dominant_lens],
+        conversation_risk=classification.main_risk or risks[classification.dominant_lens],
+        recommended_direction=classification.recommended_direction or directions[classification.dominant_lens],
         confidence=classification.confidence,  # type: ignore[arg-type]
-        alternative_read="ممکن است پیام فقط از خستگی، عجله، دلخوری لحظه‌ای یا سبک بیان غیرمستقیم آمده باشد.",
+        alternative_read=classification.alternative_interpretation
+        or "ممکن است پیام فقط از خستگی، عجله، دلخوری لحظه‌ای یا سبک بیان غیرمستقیم آمده باشد.",
         privacy_warning="برای امنیت، بهتر است اطلاعات شخصی مثل شماره، آدرس یا نام کامل را حذف کنی." if has_sensitive_info(payload.message_text) else None,
-        cta="برای همین موقعیت، ۳ پاسخ آماده بساز: نرم، مرزبردار و کوتاه.",
+        cta="برای همین موقعیت، ۳ پاسخ آماده بساز: نرم، تعیین‌کننده مرز روابط و کوتاه.",
     )
 
 
-def paid_decode(free_output: FreeDecodeOutput, relationship_type: str, user_goal: str) -> PaidDecodeOutput:
+async def paid_decode(free_output: FreeDecodeOutput, relationship_type: str, user_goal: str) -> PaidDecodeOutput:
     if _use_ai_provider():
-        ai_output = _paid_decode_with_ai(free_output, relationship_type, user_goal)
+        ai_output = await _paid_decode_with_ai(free_output, relationship_type, user_goal)
         if ai_output is not None:
             return ai_output
 
     professional = relationship_type in ("manager_colleague", "customer") or user_goal == "professional_reply"
+    is_ex = relationship_type == "ex" or user_goal == "end_conversation"
+
     if professional:
         replies = [
-            ReplyOption(label="حرفه‌ای", text="حق با شماست، باید زودتر اطلاع می‌دادم. نسخه فعلی را تا ساعت ۴ امروز ارسال می‌کنم و از این به بعد وضعیت کار را قبل از موعد گزارش می‌دهم.", why_it_works="مسئولیت را می‌پذیرد، زمان دقیق می‌دهد و دفاع اضافه ندارد."),
-            ReplyOption(label="کوتاه", text="بله، تأخیر از سمت من بوده. گزارش تا ساعت ۴ امروز ارسال می‌شود.", why_it_works="شفاف، کوتاه و نتیجه‌محور است."),
-            ReplyOption(label="مرزبردار", text="متوجه‌ام که زمان‌بندی مهم بوده. برای اینکه مسیر روشن باشد، نسخه فعلی را تا ساعت ۴ می‌فرستم و اگر اصلاحی لازم بود همان‌جا مشخص می‌کنیم.", why_it_works="هم نگرانی طرف را می‌بیند، هم مسیر کار را کنترل‌پذیر می‌کند."),
+            ReplyOption(
+                label="حرفه‌ای",
+                text="متوجه این موضوع هستم و پیگیری شما کاملاً بجاست. این مسئله در حال بررسی است و نتیجه نهایی را تا پایان وقت اداری امروز به شما اطلاع می‌دهم تا طبق برنامه هماهنگ پیش برویم.",
+                why_it_works="مسئولیت کاری را تایید می‌کند و بدون بهانه‌تراشی، زمان دقیق پاسخ‌گویی می‌دهد."
+            ),
+            ReplyOption(
+                label="کوتاه",
+                text="پیام شما دریافت شد. موضوع در دست بررسی است و نتیجه را تا ساعت ۴ امروز خدمت شما ارسال خواهم کرد.",
+                why_it_works="پیام را کوتاه و بدون زیاده‌گویی نگه می‌دارد و بر زمان مشخص متمرکز است."
+            ),
+            ReplyOption(
+                label="تعیین‌کننده مرز روابط",
+                text="از پیگیری شما متشکرم. برای اینکه کارها با کیفیت و نظم بهتری جلو برود، در حال انجام کارها طبق اولویت هستیم و تا ساعت ۴ زمان‌بندی جدید را اعلام می‌کنیم.",
+                why_it_works="مرز کاری سالمی را بر اساس اولویت‌ها تعیین کرده و جلوی استرس اضافی را می‌گیرد."
+            ),
+            ReplyOption(
+                label="قاطع و آرام",
+                text="حق با شماست، اطلاع‌رسانی باید زودتر انجام می‌شد. برای کاهش ابهام، نسخه جدید تا ساعت ۴ امروز آماده و ارسال خواهد شد.",
+                why_it_works="سهم خود را در تاخیر می‌پذیرد و اقدام بعدی را با صراحت اعلام می‌کند."
+            ),
+            ReplyOption(
+                label="نرم",
+                text="تأخیر پیش‌آمده را کاملاً درک می‌کنم و بابت آن متاسفم. نهایت تلاشم را می‌کنم که تا ساعت ۴ امروز خروجی هماهنگ‌شده را به دست شما برسانم.",
+                why_it_works="همدلی صمیمانه‌ای نشان می‌دهد و روی ارائه راه‌حل در کوتاه‌ترین زمان تمرکز دارد."
+            )
         ]
-        words = ["سرم شلوغ بود", "فکر کردم عجله‌ای نیست", "داشتم روش کار می‌کردم دیگه"]
+        words = ["سرم شلوغ بود", "فکر کردم عجله‌ای نیست", "داشتم روش کار می‌کردم دیگه", "کار پیش اومد"]
         opening = "حق با شماست، زمان‌بندی باید بهتر مدیریت می‌شد."
+    elif is_ex:
+        replies = [
+            ReplyOption(
+                label="نرم",
+                text="پیامت را خواندم. نمی‌خواهم گفتگو را تند یا احساسی جلو ببرم، اما اگر نکته مشخص یا مسئله جدی وجود دارد، می‌توانیم کوتاه و محترمانه درباره‌اش صحبت کنیم.",
+                why_it_works="راه ارتباط متمدنانه را نمی‌بندد اما جلوی کشمکش‌های عاطفی را می‌گیرد."
+            ),
+            ReplyOption(
+                label="تعیین‌کننده مرز روابط",
+                text="می‌فهمم که این موضوع برایت حساس است، اما برای حفظ آرامش هر دو نفرمان ترجیح می‌دهم وارد گفتگوهای احساسی طولانی یا رفت‌وبرگشت‌های گذشته نشویم.",
+                why_it_works="به وضوح مرز بین رابطه تمام‌شده و بحث‌های عاطفی گذشته را مشخص می‌کند."
+            ),
+            ReplyOption(
+                label="کوتاه",
+                text="پیام تو را دریافت کردم. در حال حاضر ترجیح می‌دهم فضا و فاصله‌مان را به شکل محترمانه حفظ کنیم.",
+                why_it_works="بسیار کم‌ریسک است و هیچ سیگنال مبهم یا دعوت به گفتگوهای اضافه ارسال نمی‌کند."
+            ),
+            ReplyOption(
+                label="قاطع و آرام",
+                text="حرفت را شنیدم و قصد بی‌احترامی ندارم، اما فکر می‌کنم ادامه دادن این مکالمه در حال حاضر کمکی به ما نمی‌کند و بهتر است در همین‌جا متوقفش کنیم.",
+                why_it_works="قاطعانه و با احترام کامل مکالمه فرسایشی را به پایان می‌رساند."
+            )
+        ]
+        words = ["دلم برات تنگ شده", "تو همیشه همین بودی", "برگرد", "بذار ثابت کنم", "هر چی تو بگی"]
+        opening = "حرفت رو فهمیدم."
     else:
         replies = [
-            ReplyOption(label="نرم", text="می‌فهمم چرا اینطوری برداشت کردی. قصدم این نبود که حس کنی برام مهم نیستی. نمی‌خوام بحث رو بدتر کنم؛ می‌خوام درست‌تر توضیح بدم.", why_it_works="اول احساس را می‌بیند و بعد نیت را روشن می‌کند."),
-            ReplyOption(label="مرزبردار", text="می‌فهمم ناراحت شدی، ولی دوست ندارم با کنایه ادامه بدیم. اگه مستقیم بگی چی اذیتت کرده، من هم بهتر می‌تونم جواب بدم.", why_it_works="هم ناراحتی را نادیده نمی‌گیرد، هم الگوی کنایه را تقویت نمی‌کند."),
-            ReplyOption(label="کوتاه", text="برام مهمی. فقط نمی‌خوام با سوءتفاهم جواب بدم. بیا مستقیم‌تر حرف بزنیم.", why_it_works="کم‌ریسک، ساده و قابل ارسال است."),
+            ReplyOption(
+                label="نرم",
+                text="می‌فهمم چرا اینطوری برداشت کردی و اصلاً دوست ندارم حس کنی برام مهم نیستی. قصدم آسیب زدن یا ایجاد فاصله نبوده و دلم می‌خواد سوءتفاهم‌ها رو با هم برطرف کنیم.",
+                why_it_works="اول احساس را اعتبار می‌بخشد و صمیمیت را ترمیم می‌کند بدون اینکه التماس کند."
+            ),
+            ReplyOption(
+                label="تعیین‌کننده مرز روابط",
+                text="می‌فهمم ناراحت یا دلخوری، ولی دوست ندارم با کنایه یا غیرمستقیم با هم صحبت کنیم. اگر بدون قضاوت و مستقیم بگی چی اذیتت کرده، من هم روشن‌تر می‌تونم جواب بدم.",
+                why_it_works="هم احساس طرف مقابل را می‌بیند و هم الگوی کنایه‌آمیز گفتگو را به چالش می‌کشد."
+            ),
+            ReplyOption(
+                label="کوتاه",
+                text="رابطه‌مون و خودت برام خیلی مهمی. بیا اجازه ندیم سوءتفاهم‌ها بینمون فاصله بندازه و مستقیم‌تر حرف بزنیم.",
+                why_it_works="ساده، صمیمی و کم‌ریسک است و برای کپی کردن بسیار مناسب است."
+            ),
+            ReplyOption(
+                label="قاطع و آرام",
+                text="دوست دارم منظورت رو دقیق بفهمم، اما با لحن مبهم یا کنایه این کار سخت میشه. اگر با آرامش بگی چی شده، من کاملاً آماده شنیدنم.",
+                why_it_works="با وقار و قاطعیت، طرف مقابل را به یک گفتگوی بالغانه و بدون تنش دعوت می‌کند."
+            )
         ]
-        words = ["باز", "تو همیشه", "مشکل خودته", "من که کاری نکردم", "هر جور راحتی پس"]
+        words = ["باز شروع کردی", "تو همیشه حساسی", "مشکل خودته", "من که کاری نکردم", "هر جور راحتی پس"]
         opening = "می‌فهمم چرا اینطوری برداشت کردی."
 
     if user_goal == "end_conversation":
@@ -191,7 +238,13 @@ def paid_decode(free_output: FreeDecodeOutput, relationship_type: str, user_goal
             )
         )
 
-    copy_ready = replies[0].text if professional else f"{opening} ولی دوست ندارم با کنایه ادامه بدیم. اگه مستقیم بگی چی اذیتت کرده، بهتر می‌تونم جواب بدم."
+    if user_goal == "set_boundary":
+        copy_ready = replies[1].text if len(replies) > 1 else replies[0].text
+    elif user_goal == "end_conversation":
+        copy_ready = replies[-1].text
+    else:
+        copy_ready = replies[0].text if professional or relationship_type == "ex" else f"{opening} ولی دوست ندارم با کنایه ادامه بدیم. اگه مستقیم بگی چی اذیتت کرده، بهتر می‌تونم جواب بدم."
+
     return PaidDecodeOutput(
         deep_read=f"برداشت عمیق‌تر: {free_output.likely_underlying_need} پاسخ بهتر باید هم ریسک مکالمه را کم کند، هم قدرت و مرز تو را نگه دارد.",
         dominant_lens=free_output.dominant_lens,
@@ -205,10 +258,10 @@ def paid_decode(free_output: FreeDecodeOutput, relationship_type: str, user_goal
     )
 
 
-def current_model_version() -> str:
+def current_model_version(task: str = "free") -> str:
     settings = get_settings()
     if _use_ai_provider():
-        return settings.ai_model
+        return _model_for_task(task)
     return settings.ai_model_version or MODEL_VERSION
 
 
@@ -217,7 +270,15 @@ def _use_ai_provider() -> bool:
     return settings.ai_provider in {"openai", "openai_compatible", "liara"} and bool(settings.ai_api_key)
 
 
-def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classification) -> FreeDecodeOutput | None:
+def _model_for_task(task: str) -> str:
+    settings = get_settings()
+    if task == "paid":
+        return settings.ai_paid_model
+    return settings.ai_free_model
+
+
+async def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classification) -> FreeDecodeOutput | None:
+    settings = get_settings()
     schema_hint = {
         "dominant_lens": {"fa": "امنیت و اعتماد", "en": "Oxytocin Lens", "key": "oxytocin"},
         "dominant_lens_explanation": "string",
@@ -237,24 +298,27 @@ def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classification) 
         "relationship_type": payload.relationship_type,
         "user_goal": payload.user_goal,
         "optional_context": payload.optional_context,
-        "rule_based_classification": {
-            "safety_label": classification.safety_label,
-            "dominant_lens": classification.dominant_lens,
-            "secondary_lenses": classification.secondary_lenses,
-            "confidence": classification.confidence,
-            "manipulative": classification.manipulative,
-        },
+        "rule_engine_analysis": classification_payload(classification),
         "requirements": [
             "پاسخ آماده کامل نده.",
             "لنز غالب را توضیح بده و تاکید کن تشخیص هورمونی واقعی نیست.",
             "از قطعیت درباره نیت یا شخصیت طرف مقابل پرهیز کن.",
+            "از rule_engine_analysis استفاده کن، اما اگر متن خلافش را نشان می‌دهد، محتاطانه اصلاح کن.",
+            "چرا این لنز دیده می‌شود را با اشاره به لحن/کلمه‌های پیام توضیح بده.",
             "فارسی طبیعی بنویس.",
         ],
         "json_schema_shape": schema_hint,
     }
-    data = _chat_json(user_prompt)
+    cache_key = hashlib.sha256(json.dumps(user_prompt, sort_keys=True).encode()).hexdigest()
+    if settings.ai_semantic_cache_enabled:
+        cached = get_cached_response(task="free_decode", cache_key=cache_key)
+        if cached:
+            return FreeDecodeOutput.model_validate(cached)
+    data = await _chat_json(user_prompt, model=_model_for_task("free"))
     if data is None:
         return None
+    if settings.ai_semantic_cache_enabled:
+        set_cached_response(task="free_decode", cache_key=cache_key, response=data, model_used=_model_for_task("free"))
     if has_sensitive_info(payload.message_text) and not data.get("privacy_warning"):
         data["privacy_warning"] = "برای امنیت، بهتر است اطلاعات شخصی مثل شماره، آدرس یا نام کامل را حذف کنی."
     try:
@@ -263,15 +327,18 @@ def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classification) 
         return None
 
 
-def _paid_decode_with_ai(free_output: FreeDecodeOutput, relationship_type: str, user_goal: str) -> PaidDecodeOutput | None:
+async def _paid_decode_with_ai(free_output: FreeDecodeOutput, relationship_type: str, user_goal: str) -> PaidDecodeOutput | None:
+    settings = get_settings()
     schema_hint = {
         "deep_read": "string",
         "dominant_lens": free_output.dominant_lens.model_dump(),
         "secondary_lenses": [lens.model_dump() for lens in free_output.secondary_lenses],
         "reply_options": [
             {"label": "نرم", "text": "string", "why_it_works": "string"},
-            {"label": "مرزبردار", "text": "string", "why_it_works": "string"},
+            {"label": "تعیین‌کننده مرز روابط", "text": "string", "why_it_works": "string"},
             {"label": "کوتاه", "text": "string", "why_it_works": "string"},
+            {"label": "قاطع و آرام", "text": "string", "why_it_works": "string"},
+            {"label": "هدف‌محور", "text": "string", "why_it_works": "string"},
         ],
         "words_to_avoid": ["string"],
         "safe_opening_line": "string",
@@ -284,29 +351,40 @@ def _paid_decode_with_ai(free_output: FreeDecodeOutput, relationship_type: str, 
         "free_output": free_output.model_dump(),
         "relationship_type": relationship_type,
         "user_goal": user_goal,
+        "reply_playbook": paid_reply_playbook(relationship_type, user_goal, free_output.dominant_lens.key),
         "requirements": [
-            "۳ تا ۵ پاسخ آماده و قابل کپی بده.",
-            "برای کار لحن حرفه‌ای، برای رابطه لحن انسانی و بدون التماس، برای اکس مرزبردار باشد.",
+            "۴ تا ۵ پاسخ آماده و قابل کپی بده؛ پاسخ‌ها واقعاً از نظر زاویه و کاربرد متفاوت باشند.",
+            "حتماً این labelها را پوشش بده مگر اینکه context خلافش باشد: نرم، تعیین‌کننده مرز روابط، کوتاه، قاطع و آرام، هدف‌محور.",
+            "برای کار لحن حرفه‌ای، برای رابطه لحن انسانی و بدون التماس، برای اکس محترمانه و تعیین‌کننده مرز روابط باشد.",
+            "copy_ready_reply را از بهترین ترکیب برای user_goal بساز، نه الزاماً اولین پاسخ.",
             "کلمات ممنوع و دلیل هر پاسخ را بده.",
             "نسخه با استناد به Message Decoder اختیاری و نرم باشد.",
+            "هیچ پاسخ manipulative، guilt-trip، تحقیرآمیز یا تحریک‌کننده تولید نکن.",
             "فارسی طبیعی بنویس، نه رباتی یا بیش از حد روانشناسانه.",
         ],
         "json_schema_shape": schema_hint,
     }
-    data = _chat_json(user_prompt)
+    cache_key = hashlib.sha256(json.dumps(user_prompt, sort_keys=True).encode()).hexdigest()
+    if settings.ai_semantic_cache_enabled:
+        cached = get_cached_response(task="paid_decode", cache_key=cache_key)
+        if cached:
+            return PaidDecodeOutput.model_validate(cached)
+    data = await _chat_json(user_prompt, model=_model_for_task("paid"))
     if data is None:
         return None
+    if settings.ai_semantic_cache_enabled:
+        set_cached_response(task="paid_decode", cache_key=cache_key, response=data, model_used=_model_for_task("paid"))
     try:
         return PaidDecodeOutput.model_validate(data)
     except Exception:
         return None
 
 
-def _chat_json(user_payload: dict[str, Any]) -> dict[str, Any] | None:
+async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> dict[str, Any] | None:
     settings = get_settings()
     endpoint = settings.ai_api_base_url.rstrip("/") + "/chat/completions"
     body = {
-        "model": settings.ai_model,
+        "model": model or settings.ai_model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
@@ -319,12 +397,15 @@ def _chat_json(user_payload: dict[str, Any]) -> dict[str, Any] | None:
         "Content-Type": "application/json",
     }
     try:
-        with httpx.Client(timeout=35) as client:
-            response = client.post(endpoint, headers=headers, json=body)
+        async with httpx.AsyncClient(timeout=90) as client:
+            response = await client.post(endpoint, headers=headers, json=body)
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             return _parse_json_object(content)
-    except Exception:
+    except Exception as e:
+        print(f"AI API Error: {type(e).__name__} - {str(e)}")
+        if isinstance(e, httpx.HTTPStatusError):
+            print(f"HTTP Status Error: {e.response.status_code} - {e.response.text}")
         return None
 
 
@@ -341,3 +422,4 @@ def _parse_json_object(content: str) -> dict[str, Any] | None:
             return value if isinstance(value, dict) else None
         except json.JSONDecodeError:
             return None
+

@@ -4,7 +4,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_message_decoder.db"
 
 from fastapi.testclient import TestClient
 
-from app.database import init_db
+from app.database import db, init_db
 from app.main import app
 
 
@@ -21,7 +21,7 @@ def setup_module():
 
 def auth_headers():
     client.post("/auth/request-otp", json={"phone": "09123456789"})
-    res = client.post("/auth/verify-otp", json={"phone": "09123456789", "code": "123456"})
+    res = client.post("/auth/verify-otp", json={"phone": "09123456789", "code": "25367286503"})
     token = res.json()["token"]
     return {"Authorization": f"Bearer {token}"}
 
@@ -44,6 +44,10 @@ def test_free_decode_has_no_copy_ready_reply():
 
 def test_paid_decode_requires_credit():
     headers = auth_headers()
+    token = headers["Authorization"].removeprefix("Bearer ")
+    with db() as conn:
+        row = conn.execute("SELECT user_id FROM auth_sessions WHERE token = ?", (token,)).fetchone()
+        conn.execute("UPDATE users SET credit_balance = 0 WHERE id = ?", (row["user_id"],))
     free = client.post(
         "/decode/free",
         json={
@@ -55,6 +59,16 @@ def test_paid_decode_requires_credit():
     ).json()
     res = client.post("/decode/paid", json={"decode_id": free["decode_id"]}, headers=headers)
     assert res.status_code == 402
+
+
+def test_successful_login_grants_credit_each_time():
+    phone = "09120000000"
+    client.post("/auth/request-otp", json={"phone": phone})
+    first = client.post("/auth/verify-otp", json={"phone": phone, "code": "25367286503"}).json()
+    client.post("/auth/request-otp", json={"phone": phone})
+    second = client.post("/auth/verify-otp", json={"phone": phone, "code": "25367286503"}).json()
+    assert first["credit_balance"] >= 1
+    assert second["credit_balance"] == first["credit_balance"] + 1
 
 
 def test_payment_verify_adds_credits_and_paid_consumes_one():
@@ -103,4 +117,3 @@ def test_safety_message_uses_safety_mode():
     body = res.json()
     assert body["safety_label"] == "high_risk"
     assert body["safety_output"]["warning_title"] == "هشدار امنیتی"
-

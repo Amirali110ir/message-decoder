@@ -57,7 +57,13 @@ export type PaidDecodeResponse = {
   };
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (
+  typeof window !== "undefined"
+    ? (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+        ? "http://127.0.0.1:8000"
+        : "")
+    : "http://127.0.0.1:8000"
+);
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
@@ -69,7 +75,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? "خطا در ارتباط با سرور");
+    let errorMessage = "خطا در ارتباط با سرور";
+    if (body.detail) {
+      if (typeof body.detail === "string") {
+        errorMessage = body.detail;
+      } else if (Array.isArray(body.detail)) {
+        errorMessage = body.detail.map((e: any) => e.msg || JSON.stringify(e)).join(", ");
+      } else {
+        errorMessage = JSON.stringify(body.detail);
+      }
+    }
+    throw new Error(errorMessage);
   }
   return res.json() as Promise<T>;
 }

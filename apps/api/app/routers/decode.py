@@ -5,7 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.database import db
 from app.schemas import FreeDecodeIn, FreeDecodeResponse, PaidDecodeIn, PaidDecodeResponse
 from app.services.analytics import track
-from app.services.ai import PROMPT_VERSION, classify, current_model_version, free_decode, paid_decode, safety_output
+from app.services.ai import (
+    OUTPUT_SCHEMA_VERSION,
+    PROMPT_VERSION,
+    RULE_ENGINE_VERSION,
+    classify,
+    current_model_version,
+    free_decode,
+    paid_decode,
+    safety_output,
+)
 from app.services.auth import get_current_user_id
 from app.utils import anonymize_text, dumps, loads, new_id, now_iso
 
@@ -13,13 +22,13 @@ router = APIRouter(tags=["decode"])
 
 
 @router.post("/decode/free", response_model=FreeDecodeResponse)
-def create_free_decode(payload: FreeDecodeIn) -> FreeDecodeResponse:
+async def create_free_decode(payload: FreeDecodeIn) -> FreeDecodeResponse:
     classification = classify(payload)
     message_id = new_id("msg")
     decode_id = new_id("dec")
     raw_text = payload.message_text if payload.privacy_consent == "history" else None
     anonymized = anonymize_text(payload.message_text) if payload.privacy_consent in ("history", "anonymized") else None
-    output = safety_output() if classification.safety_label == "high_risk" else free_decode(payload, classification)
+    output = safety_output() if classification.safety_label == "high_risk" else await free_decode(payload, classification)
     with db() as conn:
         conn.execute(
             """
@@ -42,8 +51,12 @@ def create_free_decode(payload: FreeDecodeIn) -> FreeDecodeResponse:
         )
         conn.execute(
             """
-            INSERT INTO decodes (id, message_id, dominant_lens, secondary_lenses, confidence_level, free_output, model_version, prompt_version, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO decodes (
+                id, message_id, dominant_lens, secondary_lenses, confidence_level,
+                free_output, model_version, free_model_version, prompt_version,
+                rule_engine_version, output_schema_version, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 decode_id,
@@ -52,8 +65,11 @@ def create_free_decode(payload: FreeDecodeIn) -> FreeDecodeResponse:
                 dumps(classification.secondary_lenses),
                 classification.confidence,
                 dumps(output.model_dump()),
-                current_model_version(),
+                current_model_version("free"),
+                current_model_version("free"),
                 PROMPT_VERSION,
+                RULE_ENGINE_VERSION,
+                OUTPUT_SCHEMA_VERSION,
                 now_iso(),
             ),
         )
@@ -79,7 +95,7 @@ def create_free_decode(payload: FreeDecodeIn) -> FreeDecodeResponse:
 
 
 @router.post("/decode/paid", response_model=PaidDecodeResponse)
-def create_paid_decode(payload: PaidDecodeIn, user_id: str = Depends(get_current_user_id)) -> PaidDecodeResponse:
+async def create_paid_decode(payload: PaidDecodeIn, user_id: str = Depends(get_current_user_id)) -> PaidDecodeResponse:
     generated_paid = False
     with db() as conn:
         user = conn.execute("SELECT credit_balance FROM users WHERE id = ?", (user_id,)).fetchone()
@@ -105,15 +121,15 @@ def create_paid_decode(payload: PaidDecodeIn, user_id: str = Depends(get_current
             if loads(decode["free_output"], {}).get("warning_title"):
                 raise HTTPException(status_code=400, detail="Safety decodes do not support paid replies")
             free_output = loads(decode["free_output"])
-            paid_model = paid_decode(
+            paid_model = await paid_decode(
                 free_decode_output_from_dict(free_output),
                 decode["relationship_type"],
                 decode["user_goal"],
             )
             paid = paid_model.model_dump()
             conn.execute(
-                "UPDATE decodes SET paid_output = ?, paid_at = ? WHERE id = ?",
-                (dumps(paid), now_iso(), payload.decode_id),
+                "UPDATE decodes SET paid_output = ?, paid_model_version = ?, paid_at = ? WHERE id = ?",
+                (dumps(paid), current_model_version("paid"), now_iso(), payload.decode_id),
             )
             conn.execute("UPDATE users SET credit_balance = credit_balance - 1 WHERE id = ?", (user_id,))
             generated_paid = True
@@ -122,6 +138,7 @@ def create_paid_decode(payload: PaidDecodeIn, user_id: str = Depends(get_current
     if generated_paid:
         track("paid_decode_generated", user_id=user_id, payload={"decode_id": payload.decode_id})
     return PaidDecodeResponse(decode_id=payload.decode_id, paid_output=paid, credit_balance=int(balance))
+
 
 
 def free_decode_output_from_dict(data: dict):

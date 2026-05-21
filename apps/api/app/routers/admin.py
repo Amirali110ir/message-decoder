@@ -2,6 +2,10 @@ from fastapi import APIRouter, Header, HTTPException
 
 from app.config import get_settings
 from app.database import db
+from app.schemas import FreeDecodeIn
+from app.services.learning import build_daily_learning_report
+from app.services.rule_engine import classification_payload, classify, paid_reply_playbook
+from app.services.rule_eval import candidate_eval_cases, evaluate_rule_engine
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -35,3 +39,38 @@ def metrics(_: None = Header(default=None), x_admin_token: str | None = Header(d
         "safety": safety,
     }
 
+
+@router.get("/learning/daily")
+def daily_learning_report(
+    report_date: str | None = None,
+    persist: bool = False,
+    x_admin_token: str | None = Header(default=None),
+):
+    require_admin(x_admin_token)
+    return build_daily_learning_report(report_date=report_date, persist=persist)
+
+
+@router.post("/rule-engine/explain")
+def explain_rule_engine(payload: FreeDecodeIn, x_admin_token: str | None = Header(default=None)):
+    require_admin(x_admin_token)
+    classification = classify(payload)
+    return {
+        "analysis": classification_payload(classification),
+        "paid_reply_playbook": paid_reply_playbook(
+            payload.relationship_type,
+            payload.user_goal,
+            classification.dominant_lens,
+        ),
+    }
+
+
+@router.get("/rule-engine/eval")
+def rule_engine_eval(x_admin_token: str | None = Header(default=None)):
+    require_admin(x_admin_token)
+    return evaluate_rule_engine()
+
+
+@router.get("/rule-engine/candidate-cases")
+def rule_engine_candidate_cases(limit: int = 50, x_admin_token: str | None = Header(default=None)):
+    require_admin(x_admin_token)
+    return candidate_eval_cases(limit=limit)

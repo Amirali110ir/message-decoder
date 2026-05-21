@@ -80,7 +80,11 @@ def init_db() -> None:
                 free_output TEXT NOT NULL,
                 paid_output TEXT,
                 model_version TEXT NOT NULL,
+                free_model_version TEXT,
+                paid_model_version TEXT,
                 prompt_version TEXT NOT NULL,
+                rule_engine_version TEXT,
+                output_schema_version TEXT,
                 created_at TEXT NOT NULL,
                 paid_at TEXT,
                 FOREIGN KEY(message_id) REFERENCES messages(id)
@@ -146,6 +150,44 @@ def init_db() -> None:
                 payload TEXT,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS quality_signals (
+                id TEXT PRIMARY KEY,
+                decode_id TEXT NOT NULL,
+                signal_name TEXT NOT NULL,
+                signal_value TEXT NOT NULL,
+                weight REAL NOT NULL DEFAULT 1,
+                source TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(decode_id) REFERENCES decodes(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_learning_reports (
+                id TEXT PRIMARY KEY,
+                report_date TEXT NOT NULL,
+                metrics TEXT NOT NULL,
+                recommendations TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS semantic_cache (
+                cache_key TEXT PRIMARY KEY,
+                task TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                model_used TEXT,
+                hit_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                last_hit_at TEXT
+            );
             """
         )
+        _ensure_column(conn, "decodes", "free_model_version", "TEXT")
+        _ensure_column(conn, "decodes", "paid_model_version", "TEXT")
+        _ensure_column(conn, "decodes", "rule_engine_version", "TEXT")
+        _ensure_column(conn, "decodes", "output_schema_version", "TEXT")
 
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.database import db
 from app.schemas import CopyEventIn, FeedbackIn, OkOut
 from app.services.analytics import track
+from app.services.learning import record_quality_signal
 from app.utils import new_id, now_iso
 
 router = APIRouter(tags=["feedback"])
@@ -32,6 +33,14 @@ def feedback(payload: FeedbackIn) -> OkOut:
             ),
         )
     track("feedback_submitted", payload={"decode_id": payload.decode_id, "outcome": payload.outcome})
+    if payload.user_rating:
+        record_quality_signal(payload.decode_id, "user_rating", payload.user_rating, "feedback", 1)
+    if payload.outcome:
+        record_quality_signal(payload.decode_id, "outcome", payload.outcome, "feedback", 1.5)
+    if payload.regret_score is not None:
+        record_quality_signal(payload.decode_id, "regret_score", str(payload.regret_score), "feedback", 2)
+    if payload.favorite_reply_label:
+        record_quality_signal(payload.decode_id, "favorite_reply_label", payload.favorite_reply_label, "feedback", 1)
     if payload.outcome:
         track("outcome_submitted", payload={"decode_id": payload.decode_id, "outcome": payload.outcome})
     return OkOut(ok=True)
@@ -45,4 +54,5 @@ def copy_event(payload: CopyEventIn) -> OkOut:
             (new_id("copy"), payload.decode_id, payload.reply_label, payload.reply_text_id, now_iso()),
         )
     track("reply_copied", payload={"decode_id": payload.decode_id, "reply_label": payload.reply_label})
+    record_quality_signal(payload.decode_id, "reply_copied", payload.reply_label, "copy_event", 1)
     return OkOut(ok=True)

@@ -20,23 +20,42 @@ export default function AdminPage() {
   }
 
   return (
-    <main className="page">
-      <div className="shell" style={{ paddingTop: 32 }}>
-        <div className="topbar">
+    <main className="page admin-page">
+      <header className="topbar">
+        <div className="shell topbar-inner">
           <div className="brand">
-            Admin
-            <span>Message Decoder</span>
+            <div className="brand-logo">A</div>
+            <div className="brand-text">
+              <span className="brand-title">Admin</span>
+              <span className="brand-subtitle">Message Decoder</span>
+            </div>
           </div>
+          <a className="nav-login" href="/">
+            بازگشت به سایت
+          </a>
         </div>
-        <div className="workspace">
-          <div className="grid">
-            <label className="field">
-              <span className="label">Admin Token</span>
-              <input value={token} onChange={(event) => setToken(event.target.value)} placeholder="change-me-admin-token" />
-            </label>
-            <button className="primary" onClick={loadMetrics}>نمایش metrics</button>
+      </header>
+
+      <section className="admin-section">
+        <div className="shell workspace">
+          <div className="section-heading">
+            <span>داشبورد داخلی</span>
+            <h1>Metrics محصول</h1>
+            <p>توکن ادمین را وارد کنید تا شاخص‌های استفاده، تبدیل و کیفیت پاسخ‌ها را ببینید.</p>
           </div>
+
+          <div className="panel-card">
+            <div className="grid">
+              <label className="field">
+                <span className="label">Admin Token</span>
+                <input value={token} onChange={(event) => setToken(event.target.value)} placeholder="change-me-admin-token" />
+              </label>
+              <button className="primary" onClick={loadMetrics}>نمایش metrics</button>
+            </div>
+          </div>
+
           {error ? <p className="error">{error}</p> : null}
+
           {metrics ? (
             <div className="result">
               <Metric title="Users" value={metrics.users} />
@@ -45,18 +64,12 @@ export default function AdminPage() {
               <Metric title="Revenue" value={metrics.revenue} />
               <Metric title="Conversion" value={`${Math.round(metrics.conversion * 100)}٪`} />
               <Metric title="Copy rate" value={`${Math.round(metrics.copy_rate * 100)}٪`} />
-              <div className="section">
-                <h3>Lens mix</h3>
-                <p>{metrics.by_lens.map((item) => `${item.dominant_lens}: ${item.count}`).join("، ") || "داده‌ای نیست"}</p>
-              </div>
-              <div className="section">
-                <h3>Safety labels</h3>
-                <p>{metrics.safety.map((item) => `${item.safety_label}: ${item.count}`).join("، ") || "داده‌ای نیست"}</p>
-              </div>
+              <Metric title="Lens mix" value={metrics.by_lens.map((item) => `${item.dominant_lens}: ${item.count}`).join("، ") || "داده‌ای نیست"} />
+              <Metric title="Safety labels" value={metrics.safety.map((item) => `${item.safety_label}: ${item.count}`).join("، ") || "داده‌ای نیست"} />
             </div>
           ) : null}
         </div>
-      </div>
+      </section>
     </main>
   );
 }

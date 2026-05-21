@@ -39,3 +39,29 @@ def has_sensitive_info(text: str) -> bool:
         or re.search(r"\b\d{8,}\b", text)
     )
 
+
+def normalize_persian(text: str) -> str:
+    if not text:
+        return ""
+    # Map Arabic Kaf/Yeh variations to standard Persian
+    arabic_to_persian = {
+        "ي": "ی",
+        "ى": "ی",
+        "ك": "ک",
+        "ة": "ه",
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+    }
+    for arabic_char, persian_char in arabic_to_persian.items():
+        text = text.replace(arabic_char, persian_char)
+    
+    # Standardize zero-width non-joiner (ZWNJ / نیم‌فاصله)
+    # Convert various ZWNJ encodings or common spaces between prefix/suffix
+    text = text.replace("\u200c", "‌")  # Standardize ZWNJ character
+    
+    # Remove excessive whitespace
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+

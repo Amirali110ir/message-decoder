@@ -1,5 +1,9 @@
 {
-  "platform": "docker",
-  "port": 8000
+  "platform": "python",
+  "port": 80,
+  "python": {
+    "version": "3.12",
+    "mirror": true,
+    "timezone": "Asia/Tehran"
+  }
 }
-

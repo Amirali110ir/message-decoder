@@ -3,7 +3,7 @@ import "./styles.css";
 
 export const metadata: Metadata = {
   title: "Message Decoder by NeuroLens",
-  description: "قبل از جواب دادن، پیامش را رمزگشایی کن."
+  description: "پیام‌های مبهم را با تحلیل الهام‌گرفته از علوم اعصاب و روان‌شناسی رفتاری واضح‌تر بفهمید و امن‌تر پاسخ دهید."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -13,4 +13,3 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     </html>
   );
 }
-
