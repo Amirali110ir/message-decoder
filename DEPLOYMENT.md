@@ -31,8 +31,8 @@ liara deploy \
 
 اگر بعداً بخواهیم frontend و backend جدا scale شوند، پروژه به دو app جدا روی Liara نیاز دارد:
 
-1. `message-decoder-api`
-2. `message-decoder-web`
+1. `message-decoder` (Backend)
+2. `message-decoder-web` (Frontend)
 
 ## 1. ورود به Liara
 
@@ -85,7 +85,7 @@ NEXT_PUBLIC_API_URL=https://YOUR_API_DOMAIN
 
 ```bash
 liara deploy \
-  --app message-decoder-api \
+  --app message-decoder \
   --path apps/api \
   --dockerfile Dockerfile \
   --port 8000 \
@@ -98,7 +98,7 @@ liara deploy \
 
 ```bash
 liara deploy \
-  --app message-decoder-web \
+  --app message-decoder \
   --path . \
   --dockerfile apps/web/Dockerfile \
   --port 3000 \

@@ -1,4 +1,5 @@
 {
+  "app": "message-decoder",
   "platform": "python",
   "port": 80,
   "python": {
