@@ -42,6 +42,8 @@ class Settings:
     admin_token: str = field(default_factory=lambda: os.getenv("ADMIN_TOKEN", "change-me-admin-token"))
     zarinpal_merchant_id: str = field(default_factory=lambda: os.getenv("ZARINPAL_MERCHANT_ID", "sandbox"))
     zarinpal_callback_url: str = field(default_factory=lambda: os.getenv("ZARINPAL_CALLBACK_URL", "http://localhost:3000/payment/callback"))
+    zarinpal_api_base_url: str = field(default_factory=lambda: os.getenv("ZARINPAL_API_BASE_URL", "https://api.zarinpal.com"))
+    zarinpal_start_pay_url: str = field(default_factory=lambda: os.getenv("ZARINPAL_START_PAY_URL", "https://www.zarinpal.com/pg/StartPay"))
     cors_origins: str = field(
         default_factory=lambda: os.getenv(
             "CORS_ORIGINS",

@@ -53,11 +53,24 @@ class LensLabel(BaseModel):
     key: str
 
 
+class LensMix(BaseModel):
+    dopamine: int = 0
+    oxytocin: int = 0
+    serotonin: int = 0
+
+
+class ToneStress(BaseModel):
+    label: str = "مبهم"
+    intensity: int = Field(default=35, ge=0, le=100)
+
+
 class FreeDecodeOutput(BaseModel):
     dominant_lens: LensLabel
     dominant_lens_explanation: str
     why_this_lens: str
     secondary_lenses: list[LensLabel] = []
+    lens_mix: LensMix = Field(default_factory=LensMix)
+    tone_stress: ToneStress = Field(default_factory=ToneStress)
     likely_underlying_need: str
     conversation_risk: str
     recommended_direction: str
@@ -71,6 +84,7 @@ class ReplyOption(BaseModel):
     label: str
     text: str
     why_it_works: str
+    reaction_prediction: str | None = None
 
 
 class PaidDecodeOutput(BaseModel):
@@ -98,6 +112,8 @@ class FreeDecodeIn(BaseModel):
     user_goal: UserGoal = "understand_only"
     optional_context: str | None = Field(default=None, max_length=2000)
     privacy_consent: PrivacyConsent = "none"
+    contact_id: str | None = None
+    ghost_mode: bool = False
 
 
 class FreeDecodeResponse(BaseModel):
@@ -119,6 +135,33 @@ class PaidDecodeResponse(BaseModel):
     credit_balance: int
 
 
+class DecodeHistoryItem(BaseModel):
+    id: str
+    created_at: str
+    relationship_type: str
+    user_goal: str
+    safety_label: str
+    dominant_lens: str
+    confidence_level: str
+    has_paid_output: bool
+    message_preview: str | None = None
+    free_output: dict
+    paid_output: dict | None = None
+
+
+class DecodeHistoryOut(BaseModel):
+    items: list[DecodeHistoryItem]
+
+
+class RelationshipThermometerOut(BaseModel):
+    contact_id: str
+    interaction_count: int
+    defensive_trend: int = Field(ge=-100, le=100)
+    warmth_score: int = Field(ge=0, le=100)
+    label: str
+    summary: str
+
+
 class CreditsOut(BaseModel):
     credit_balance: int
 
@@ -132,6 +175,7 @@ class PaymentCreateOut(BaseModel):
     payment_url: str
     amount: int
     credits: int
+    authority: str | None = None
 
 
 class PaymentVerifyIn(BaseModel):
@@ -144,6 +188,7 @@ class PaymentVerifyOut(BaseModel):
     payment_id: str
     status: str
     credit_balance: int
+    ref_id: str | None = None
 
 
 class FeedbackIn(BaseModel):
@@ -157,6 +202,14 @@ class FeedbackIn(BaseModel):
     user_comment: str | None = None
 
 
+class SelectedReplyFeedbackIn(BaseModel):
+    decode_id: str
+    selected_reply_label: str
+    copied_response: bool | None = None
+    outcome: str | None = None
+    contact_id: str | None = None
+
+
 class CopyEventIn(BaseModel):
     decode_id: str
     reply_label: str
@@ -166,3 +219,56 @@ class CopyEventIn(BaseModel):
 class OkOut(BaseModel):
     ok: bool
 
+
+class DeletedStoredDataOut(BaseModel):
+    ok: bool
+    deleted_decodes: int
+    deleted_messages: int
+    deleted_contacts: int
+
+
+class AdminDecodeItem(BaseModel):
+    id: str
+    created_at: str
+    paid_at: str | None = None
+    relationship_type: str
+    user_goal: str
+    privacy_consent: str
+    safety_label: str
+    dominant_lens: str
+    secondary_lenses: list[str] = []
+    confidence_level: str
+    prompt_version: str
+    model_version: str
+    free_model_version: str | None = None
+    paid_model_version: str | None = None
+    rule_engine_version: str | None = None
+    output_schema_version: str | None = None
+    has_paid_output: bool
+    anonymized_preview: str | None = None
+    feedback_count: int = 0
+    copy_count: int = 0
+
+
+class AdminDecodeListOut(BaseModel):
+    items: list[AdminDecodeItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class ContactIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    relationship_type: RelationshipType
+    default_goal: UserGoal | None = None
+    profile_summary: str | None = Field(default=None, max_length=2000)
+
+
+class ContactOut(BaseModel):
+    id: str
+    name: str
+    relationship_type: RelationshipType
+    default_goal: UserGoal | None = None
+    profile_summary: str | None = None
+    interaction_count: int
+    created_at: str

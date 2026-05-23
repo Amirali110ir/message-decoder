@@ -17,7 +17,7 @@ def create(payload: PaymentCreateIn, user_id: str = Depends(get_current_user_id)
 
 @router.post("/verify", response_model=PaymentVerifyOut)
 def verify(payload: PaymentVerifyIn, user_id: str = Depends(get_current_user_id)) -> PaymentVerifyOut:
-    status, balance = verify_payment(user_id, payload.payment_id, payload.status)
+    status, balance, ref_id = verify_payment(user_id, payload.payment_id, payload.status, payload.authority)
     if status == "verified":
         track("credit_purchased", user_id=user_id, payload={"payment_id": payload.payment_id})
-    return PaymentVerifyOut(payment_id=payload.payment_id, status=status, credit_balance=balance)
+    return PaymentVerifyOut(payment_id=payload.payment_id, status=status, credit_balance=balance, ref_id=ref_id)

@@ -179,12 +179,27 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 last_hit_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS contacts (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                default_goal TEXT,
+                profile_summary TEXT,
+                interaction_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             """
         )
         _ensure_column(conn, "decodes", "free_model_version", "TEXT")
         _ensure_column(conn, "decodes", "paid_model_version", "TEXT")
         _ensure_column(conn, "decodes", "rule_engine_version", "TEXT")
         _ensure_column(conn, "decodes", "output_schema_version", "TEXT")
+        _ensure_column(conn, "messages", "contact_id", "TEXT")
+        _ensure_column(conn, "feedback", "selected_reply_label", "TEXT")
+        _ensure_column(conn, "payments", "ref_id", "TEXT")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:

@@ -19,38 +19,38 @@ import { requestOtp, verifyOtp } from "../lib/api";
 const benefitCards = [
   {
     icon: ShieldAlert,
-    title: "کم‌کردن سوءتفاهم قبل از پاسخ",
-    text: "پیام‌های سرد یا کنایه‌آمیز را فقط از روی کلمات قضاوت نکنید. قبل از دفاع کردن، نیاز احتمالی پشت واکنش را ببینید."
+    title: "قبل از دفاع کردن، ریسک را ببینید",
+    text: "یک پیام سرد می‌تواند از دلخوری، عجله یا نیاز به اطمینان آمده باشد. قبل از جواب تند، برداشت‌های محتمل را کنار هم ببینید."
   },
   {
     icon: Compass,
-    title: "وضوح بیشتر در پیام‌های مبهم",
-    text: "وقتی شریک عاطفی، دوست یا مدیرتان مبهم حرف می‌زند، چند برداشت محتمل می‌بینید تا با عجله جواب ندهید."
+    title: "از یک جمله، فقط یک داستان نسازید",
+    text: "وقتی شریک عاطفی، دوست یا مدیرتان مبهم حرف می‌زند، ابزار نشان می‌دهد کدام نیاز یا نگرانی ممکن است پشت پیام باشد."
   },
   {
     icon: ClipboardCheck,
-    title: "پاسخ‌هایی که تنش را کمتر می‌کنند",
-    text: "پاسخ نرم، قاطع، کوتاه یا پایان‌دهنده بسازید؛ طوری که حرفتان روشن بماند و رابطه بی‌دلیل آسیب نبیند."
+    title: "جواب قابل ارسال، نه توصیه کلی",
+    text: "بعد از تحلیل، پاسخ‌های نرم، قاطع، کوتاه یا پایان‌دهنده می‌سازید؛ قابل کپی، قابل ویرایش و مناسب همان موقعیت."
   }
 ];
 
 const lensCards = [
   {
     eyebrow: "Control Lens",
-    title: "لنز کنترل",
-    text: "برای پیام‌های همراه با فشار، پیگیری، عجله یا مرزبندی. از نظر مفهومی به سیستم پاداش/کنترل، دوپامین و واکنش استرس نزدیک است.",
+    title: "لنز نتیجه و کنترل",
+    text: "برای پیام‌هایی که بوی فشار، پیگیری، عجله یا مرزبندی می‌دهند. کمک می‌کند بفهمید طرف مقابل بیشتر دنبال خروجی، زمان‌بندی یا کنترل موقعیت است.",
     accent: "violet"
   },
   {
     eyebrow: "Safety Lens",
-    title: "لنز امنیت",
-    text: "برای پیام‌هایی با اضطراب، قهر، سکوت یا ترس از طردشدن. بیشتر با کورتیزول، نیاز به آرام‌سازی و ثبات سروتونینی توضیح داده می‌شود.",
+    title: "لنز امنیت و اعتماد",
+    text: "برای پیام‌هایی که پشت آن اضطراب، قهر، سکوت یا ترس از بی‌اهمیت شدن دیده می‌شود. کمک می‌کند قبل از پاسخ، نیاز به اطمینان را جدی‌تر ببینید.",
     accent: "cyan"
   },
   {
-    eyebrow: "Belonging Lens",
-    title: "لنز تعلق",
-    text: "برای پیام‌هایی درباره توجه، ارزشمندی، احترام و دیده‌شدن. به‌صورت مفهومی به اکسی‌توسین، پیوند اجتماعی و حس تعلق مربوط است.",
+    eyebrow: "Respect Lens",
+    title: "لنز شأن و تعلق",
+    text: "برای پیام‌هایی درباره احترام، ارزشمندی، دیده‌شدن یا جایگاه. کمک می‌کند پاسخ شما هم رابطه را ببیند، هم مرزتان را حفظ کند.",
     accent: "green"
   }
 ];
@@ -74,35 +74,35 @@ export default function Home() {
 
   async function handleOtp() {
     if (!phone.trim()) {
-      setError("برای ورود یا ثبت‌نام، شماره موبایل را وارد کنید.");
+      setError("برای گرفتن اعتبار تستی، شماره موبایل را وارد کنید.");
       return;
     }
     setError("");
-    setStatus("در حال ارسال کد فعال‌سازی...");
+    setStatus("داریم کد ورود را می‌فرستیم...");
     try {
       const result = await requestOtp(phone);
       setOtpSent(true);
-      setStatus(result.dev_otp_code ? `کد تست صادر شد: ${result.dev_otp_code}` : "کد تایید ارسال شد.");
+      setStatus(result.dev_otp_code ? `کد تست شما: ${result.dev_otp_code}` : "کد ورود ارسال شد.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ارسال کد تایید ناموفق بود.");
+      setError(err instanceof Error ? err.message : "کد ورود ارسال نشد. دوباره تلاش کنید.");
       setStatus("");
     }
   }
 
   async function handleVerify() {
     if (!otp.trim()) {
-      setError("کد تایید را وارد کنید.");
+      setError("کد ورود را وارد کنید.");
       return;
     }
     setError("");
-    setStatus("در حال تایید کد...");
+    setStatus("داریم کد را بررسی می‌کنیم...");
     try {
       const result = await verifyOtp(phone, otp);
       setCredits(result.credit_balance);
-      setStatus("حساب فعال شد و ۱ اعتبار تستی به شما اضافه شد.");
+      setStatus("اعتبار تستی فعال شد؛ حالا می‌توانید پاسخ کامل بسازید.");
       window.setTimeout(() => setAuthModalOpen(false), 700);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "کد وارد شده معتبر نیست.");
+      setError(err instanceof Error ? err.message : "این کد درست نیست یا منقضی شده است.");
       setStatus("");
     }
   }
@@ -129,10 +129,10 @@ export default function Home() {
             )}
             <button className="nav-login" onClick={() => openAuthFlow("login")}>
               <LogIn size={14} />
-              <span>ورود / ثبت‌نام</span>
+              <span>اعتبار تستی</span>
             </button>
             <Link className="nav-cta" href="/decoder">
-              تحلیل رایگان
+              تحلیل پیام
             </Link>
           </div>
         </div>
@@ -142,24 +142,24 @@ export default function Home() {
         <div className="shell hero-layout">
           <div className="hero-copy">
             <div className="trust-strip">
-              <span>برای پیام‌های شریک عاطفی، دوست، خانواده یا مدیر</span>
-              <span>تحلیل رفتاری الهام‌گرفته از علوم اعصاب؛ نه ذهن‌خوانی</span>
+              <span>تحلیل اول بدون ورود</span>
+              <span>برای رابطه عاطفی، خانواده، دوست، کار و مشتری</span>
             </div>
-            <h1>قبل از جواب دادن، بفهمید چه برداشتی از پیام محتمل‌تر است.</h1>
+            <h1>پیام مبهم را بفهمید؛ با اضطراب کمتر جواب بدهید.</h1>
             <p className="hero-subtitle">
-              Message Decoder پیام‌های مبهم، سرد یا احساسی را با الهام از علوم اعصاب و روان‌شناسی رفتاری بررسی می‌کند. به‌جای حدس‌زدن نیت طرف مقابل، چند نیاز محتمل مثل امنیت، کنترل، تعلق یا دیده‌شدن را می‌بینید و با اضطراب کمتر پاسخ می‌دهید.
+              متن پیام را وارد کنید تا برداشت محتمل، ریسک سوءتفاهم و مسیر پاسخ کم‌تنش‌تر را ببینید. Message Decoder ذهن‌خوانی نمی‌کند؛ فقط کمک می‌کند قبل از واکنش، چند احتمال انسانی‌تر را بررسی کنید.
             </p>
             <div className="hero-actions">
               <Link className="btn-primary" href="/decoder">
                 <Sparkles size={18} />
-                <span>تحلیل رایگان پیام اول</span>
+                <span>تحلیل پیامم را رایگان ببینم</span>
               </Link>
               <button className="btn-secondary" onClick={() => openAuthFlow("signup")}>
                 <User size={17} />
-                <span>ورود یا ساخت حساب</span>
+                <span>اعتبار تستی بگیرم</span>
               </button>
               <a className="btn-secondary" href="#how-it-works">
-                آشنایی با لنزهای تحلیل
+                ببینم چطور تحلیل می‌کند
               </a>
             </div>
             <div className="testimonial-chip">
@@ -167,8 +167,8 @@ export default function Home() {
                 <Quote size={18} />
               </span>
               <div>
-                <p>قبلاً پیام‌های کوتاه را نشانه بی‌علاقگی می‌دیدم. حالا قبل از پاسخ، احتمال‌های انسانی‌تری مثل نیاز به اطمینان را هم بررسی می‌کنم.</p>
-                <span className="testimonial-meta">نمونه تجربه کاربر در رابطه عاطفی</span>
+                <p>قبلاً پیام‌های کوتاه را سریع نشانه بی‌علاقگی می‌دیدم. حالا قبل از جواب دادن، یک بار هم از زاویه اطمینان، احترام و سوءتفاهم نگاه می‌کنم.</p>
+                <span className="testimonial-meta">نمونه تجربه کاربر بعد از تحلیل پیام</span>
               </div>
             </div>
           </div>
@@ -176,12 +176,12 @@ export default function Home() {
           <div className="phone-mockup" aria-label="نمونه تحلیل پیام در موبایل">
             <div className="analysis-popover external-popover">
               <span className="popover-kicker">Safety + Belonging</span>
-              <strong>نیاز احتمالی به اطمینان</strong>
-              <p>ریسک: پاسخ دفاعی می‌تواند حس دیده‌نشدن را شدیدتر کند.</p>
+              <strong>احتمال نیاز به اطمینان</strong>
+              <p>ریسک: جواب دفاعی می‌تواند حس دیده‌نشدن را بیشتر کند.</p>
             </div>
             <div className="safe-reply-card external-card">
-              <span>پاسخ کم‌تنش‌تر پیشنهاد شده</span>
-              <p>می‌فهمم چرا این حس رو گرفتی. برام مهمی، فقط شاید خوب نشانش ندادم.</p>
+              <span>پاسخ قابل ارسال</span>
+              <p>می‌فهمم چرا این برداشت رو کردی. برام مهمی؛ فقط احتمالاً خوب نشانش ندادم.</p>
             </div>
 
             <div className="phone-frame">
@@ -208,7 +208,7 @@ export default function Home() {
 
                 <div className="chat-content">
                   <div className="chat-bubble incoming long-message ios-bubble">
-                    باشه، هر جور راحتی. فقط جالبه که وقتی من چیزی می‌خوام همیشه باید توضیح بدم چرا ناراحتم. انگار اصلاً مهم نیست که چند بار همین موضوع رو گفته‌ام.
+                    باشه، هر جور راحتی. فقط جالبه که هر وقت من چیزی می‌خوام، باید توضیح بدم چرا ناراحتم. انگار اصلاً مهم نیست چند بار گفته‌ام.
                     <div className="ios-tail"></div>
                   </div>
                   <div className="scanner-band" />
@@ -219,7 +219,7 @@ export default function Home() {
                       <i />
                     </div>
                     <div className="draft-row draft-two">
-                      <span>من که کاری نکردم، چرا همیشه...</span>
+                      <span>من که کاری نکردم، چرا اینقدر...</span>
                       <i />
                     </div>
                     <div className="draft-row draft-three">
@@ -272,12 +272,12 @@ export default function Home() {
       <section className="neuroscience-section">
         <div className="shell science-layout">
           <div>
-            <span className="section-kicker">Neuro-Structured Analysis</span>
-            <h2>تحلیل رفتاری، با احتیاط علمی</h2>
+            <span className="section-kicker">قبل از واکنش</span>
+            <h2>نه ذهن‌خوانی؛ یک مکث هوشمند قبل از پاسخ</h2>
           </div>
           <div className="story-copy">
-            <p>وقتی آدم‌ها احساس فشار، طردشدن، بی‌توجهی یا از دست دادن کنترل می‌کنند، واکنش‌هایشان معمولاً الگوهای قابل‌فهم‌تری پیدا می‌کند. Message Decoder از همین الگوها کمک می‌گیرد تا پیام را فقط از سطح کلمات نخواند.</p>
-            <p>این ابزار ادعا نمی‌کند ذهن طرف مقابل را می‌خواند. خروجی آن یک برداشت قطعی نیست؛ چند چرایی محتمل است که کمک می‌کند قبل از پاسخ، موقعیت را انسانی‌تر و دقیق‌تر ببینید.</p>
+            <p>وقتی پیام سرد، کنایه‌آمیز یا فشارآور می‌رسد، ذهن سریع بدترین سناریو را می‌سازد. Message Decoder پیام را از زاویه نیاز، ریسک و هدف پاسخ بررسی می‌کند تا فقط با سطح کلمات تصمیم نگیرید.</p>
+            <p>خروجی ابزار حکم قطعی درباره نیت طرف مقابل نیست. چند برداشت محتمل است که کمک می‌کند جواب شما هم روشن باشد، هم تنش بی‌دلیل نسازد.</p>
           </div>
         </div>
       </section>
@@ -305,8 +305,8 @@ export default function Home() {
         <div className="shell">
           <div className="section-heading">
             <span>لنزهای تحلیل</span>
-            <h2>هر پیام را از سه لنز انسانی ببینید</h2>
-            <p>لحن، زمینه، نوع رابطه و شدت واکنش کنار هم قرار می‌گیرند تا نیاز احتمالی پشت پیام واضح‌تر شود. اشاره به هورمون‌ها در این بخش توضیح مفهومی است، نه تشخیص پزشکی.</p>
+            <h2>ببینید پیام بیشتر از کدام نیاز می‌آید</h2>
+            <p>لحن، زمینه، نوع رابطه و هدف پاسخ کنار هم قرار می‌گیرند تا بفهمید احتمالاً باید آرام‌سازی کنید، مرز بگذارید، مسئولیت روشن کنید یا فقط سوءتفاهم را کم کنید.</p>
           </div>
           <div className="lens-grid">
             {lensCards.map((lens) => (
@@ -324,11 +324,11 @@ export default function Home() {
         <div className="shell story-layout">
           <div>
             <span className="section-kicker">لحظه تصمیم</span>
-            <h2>گاهی یک پیام کوتاه، چند ساعت فکر و نگرانی می‌سازد.</h2>
+            <h2>همان لحظه‌ای که چند جواب می‌نویسید و پاک می‌کنید.</h2>
           </div>
           <div className="story-copy">
-            <p>«معلومه که اصلاً برات مهم نیست.» یا از طرف مدیرتان: «چرا باید دوباره پیگیری کنم؟» شاید چند جواب بنویسید، پاک کنید و دوباره از اول شروع کنید.</p>
-            <p>Message Decoder پیام را در زمینه رابطه می‌بیند، نیاز احتمالی پشت واکنش را نشان می‌دهد و کمک می‌کند به جای پاسخ دفاعی، پاسخی روشن، آرام و قابل دفاع بسازید.</p>
+            <p>«معلومه که اصلاً برات مهم نیست.» یا از طرف مدیرتان: «چرا باید دوباره پیگیری کنم؟» هر دو می‌توانند شما را بین توضیح دادن، دفاع کردن یا سکوت گیر بیندازند.</p>
+            <p>ابزار اول موقعیت را ساده می‌کند: این پیام چه نیازی را نشان می‌دهد، چه پاسخی ریسک را بالا می‌برد و کدام مسیر احتمالاً گفتگو را سالم‌تر نگه می‌دارد.</p>
           </div>
         </div>
       </section>
@@ -337,7 +337,7 @@ export default function Home() {
         <div className="shell">
           <div className="section-heading">
             <span>قبل و بعد</span>
-            <h2>قبل از واکنش نشان دادن، یک‌بار واضح‌تر ببینید</h2>
+            <h2>یک مکث کوتاه، جواب را از دفاعی به روشن تبدیل می‌کند</h2>
           </div>
           <div className="comparison-grid">
             <article className="comparison-card bad">
@@ -347,7 +347,7 @@ export default function Home() {
             </article>
             <article className="comparison-card good">
               <span>بعد: پاسخ کم‌تنش‌تر</span>
-              <p>می‌فهمم چرا اینطور برداشت کردی. قصدم بی‌اهمیت کردن تو نبود. اگر مستقیم‌تر بگی چی اذیتت کرده، بهتر می‌تونم جواب بدم.</p>
+              <p>می‌فهمم چرا این برداشت رو کردی. قصدم بی‌اهمیت کردن تو نبود. اگر مستقیم‌تر بگی چی اذیتت کرده، بهتر می‌تونم جواب بدم.</p>
               <strong>نتیجه: احساس دیده‌شدن + مرزبندی آرام</strong>
             </article>
           </div>
@@ -356,25 +356,25 @@ export default function Home() {
 
       <section className="final-cta-section">
         <div className="shell final-cta">
-          <h2>برای پاسخ دادن هنوز مطمئن نیستید؟</h2>
-          <p>یک پیام مبهم را در صفحه ابزار وارد کنید. Message Decoder چند برداشت محتمل، ریسک سوءتفاهم و مسیر پاسخ کم‌تنش‌تر را نشان می‌دهد.</p>
+          <h2>قبل از اینکه جواب را بفرستید، یک بار پیام را تحلیل کنید.</h2>
+          <p>تحلیل اولیه بدون ورود است. پیام را وارد کنید، برداشت محتمل و ریسک پاسخ عجولانه را ببینید، بعد اگر خواستید پاسخ کامل بسازید.</p>
           <Link className="btn-primary" href="/decoder">
             <Sparkles size={18} />
-            <span>رفتن به ابزار تحلیل پیام</span>
+            <span>تحلیل پیامم را شروع کنم</span>
           </Link>
         </div>
       </section>
 
       {authModalOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="ورود یا ثبت‌نام">
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="دریافت اعتبار تستی">
           <div className="auth-modal">
             <button className="modal-close" onClick={() => setAuthModalOpen(false)} aria-label="بستن">
               ×
             </button>
             <div className="auth-modal-header">
-              <span>{authMode === "signup" ? "ثبت‌نام سریع" : "ورود سریع"}</span>
-              <h2>{authMode === "signup" ? "با شماره موبایل شروع کنید" : "به حساب خود برگردید"}</h2>
-              <p>با هر ورود موفق، ۱ اعتبار تستی به حساب شما اضافه می‌شود. تحلیل رایگان در صفحه ابزار انجام می‌شود.</p>
+              <span>{authMode === "signup" ? "اعتبار تستی" : "ورود سریع"}</span>
+              <h2>{authMode === "signup" ? "پاسخ کامل را با اعتبار تستی بسازید" : "با شماره موبایل به حسابتان برگردید"}</h2>
+              <p>برای تحلیل اولیه لازم نیست وارد شوید. ورود فقط وقتی لازم است که بخواهید پاسخ‌های کامل و قابل کپی بسازید.</p>
             </div>
 
             {status && (
@@ -399,7 +399,7 @@ export default function Home() {
                   onChange={(event) => setPhone(event.target.value)}
                 />
                 <button className="btn-secondary" onClick={handleOtp}>
-                  <LogIn size={15} /> ارسال کد
+                  <LogIn size={15} /> گرفتن کد ورود
                 </button>
               </div>
 
@@ -407,12 +407,12 @@ export default function Home() {
                 <div className="auth-row">
                   <input
                     type="text"
-                    placeholder="کد تایید"
+                    placeholder="کد ورود"
                     value={otp}
                     onChange={(event) => setOtp(event.target.value)}
                   />
                   <button className="btn-primary btn-compact" onClick={handleVerify}>
-                    تایید و دریافت اعتبار
+                    فعال‌سازی اعتبار تستی
                   </button>
                 </div>
               )}
@@ -420,7 +420,7 @@ export default function Home() {
             </div>
 
             <Link className="auth-free-link" href="/decoder" onClick={() => setAuthModalOpen(false)}>
-              رفتن به ابزار تحلیل رایگان
+              اول تحلیل رایگان را ببینم
             </Link>
           </div>
         </div>
@@ -429,7 +429,7 @@ export default function Home() {
       <footer className="footer">
         <div className="shell">
           <p className="footer-text">
-            Message Decoder ابزار هوش مصنوعی برای تحلیل زبانی و کمک به پاسخ‌دادن است. این ابزار ذهن‌خوانی نمی‌کند و جایگزین گفت‌وگوی واقعی، مشاوره تخصصی، درمان یا اقدام اضطراری نیست.
+            Message Decoder برای تحلیل زبانی و ساخت پاسخ کم‌تنش‌تر است. این ابزار ذهن‌خوانی نمی‌کند، تشخیص روان‌شناختی نمی‌دهد و جایگزین گفت‌وگوی واقعی، مشاوره تخصصی، درمان یا اقدام اضطراری نیست.
           </p>
         </div>
       </footer>

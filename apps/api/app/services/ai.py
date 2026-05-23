@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
-from app.schemas import FreeDecodeIn, FreeDecodeOutput, LensLabel, PaidDecodeOutput, ReplyOption, SafetyOutput
+from app.schemas import FreeDecodeIn, FreeDecodeOutput, LensLabel, LensMix, PaidDecodeOutput, ReplyOption, SafetyOutput, ToneStress
 from app.services.cache import get_cached_response, set_cached_response
 from app.services.rule_engine import (
     RULE_ENGINE_VERSION,
@@ -128,6 +128,8 @@ async def free_decode(payload: FreeDecodeIn, classification: Classification) -> 
         + " این به معنی بالا یا پایین بودن واقعی هورمون طرف مقابل نیست؛ فقط یک لنز رفتاری برای خواندن پیام است.",
         why_this_lens=why_text,
         secondary_lenses=[LENSES[key] for key in classification.secondary_lenses],
+        lens_mix=lens_mix_from_classification(classification),
+        tone_stress=tone_stress_from_classification(classification),
         likely_underlying_need=classification.hidden_need or needs[classification.dominant_lens],
         conversation_risk=classification.main_risk or risks[classification.dominant_lens],
         recommended_direction=classification.recommended_direction or directions[classification.dominant_lens],
@@ -139,9 +141,14 @@ async def free_decode(payload: FreeDecodeIn, classification: Classification) -> 
     )
 
 
-async def paid_decode(free_output: FreeDecodeOutput, relationship_type: str, user_goal: str) -> PaidDecodeOutput:
+async def paid_decode(
+    free_output: FreeDecodeOutput,
+    relationship_type: str,
+    user_goal: str,
+    contact_profile_summary: str | None = None,
+) -> PaidDecodeOutput:
     if _use_ai_provider():
-        ai_output = await _paid_decode_with_ai(free_output, relationship_type, user_goal)
+        ai_output = await _paid_decode_with_ai(free_output, relationship_type, user_goal, contact_profile_summary)
         if ai_output is not None:
             return ai_output
 
@@ -237,6 +244,7 @@ async def paid_decode(free_output: FreeDecodeOutput, relationship_type: str, use
                 why_it_works="مرز را روشن می‌کند بدون اینکه تحقیر یا حمله کند.",
             )
         )
+    replies = with_reaction_predictions(replies, relationship_type, free_output.dominant_lens.key)
 
     if user_goal == "set_boundary":
         copy_ready = replies[1].text if len(replies) > 1 else replies[0].text
@@ -258,6 +266,20 @@ async def paid_decode(free_output: FreeDecodeOutput, relationship_type: str, use
     )
 
 
+def with_reaction_predictions(replies: list[ReplyOption], relationship_type: str, dominant_lens: str) -> list[ReplyOption]:
+    fallback = {
+        "dopamine": "احتمالاً طرف مقابل سریع‌تر روی اقدام، تصمیم یا پاسخ مشخص تمرکز می‌کند.",
+        "oxytocin": "احتمالاً اول دنبال نشانه اطمینان و دیده‌شدن می‌گردد و بعد آرام‌تر توضیح می‌دهد.",
+        "serotonin": "احتمالاً به احترام و لحن سنجیده حساس است و اگر شأنش حفظ شود کمتر دفاعی می‌شود.",
+    }.get(dominant_lens, "احتمالاً واکنش اولیه به لحن شما وابسته است؛ کوتاه و روشن نگه داشتن پاسخ ریسک را کم می‌کند.")
+    if relationship_type in ("manager_colleague", "customer"):
+        fallback = "احتمالاً پاسخ حرفه‌ای و زمان‌بندی روشن را بهتر می‌پذیرد و بحث از حالت احساسی خارج می‌شود."
+    return [
+        reply.model_copy(update={"reaction_prediction": reply.reaction_prediction or fallback})
+        for reply in replies
+    ]
+
+
 def current_model_version(task: str = "free") -> str:
     settings = get_settings()
     if _use_ai_provider():
@@ -277,6 +299,56 @@ def _model_for_task(task: str) -> str:
     return settings.ai_free_model
 
 
+def lens_mix_from_classification(classification: Classification) -> LensMix:
+    scores = {key: max(float(classification.lens_scores.get(key, 0)), 0) for key in LENSES}
+    if sum(scores.values()) <= 0:
+        scores[classification.dominant_lens] = 1
+
+    total = sum(scores.values())
+    raw = {key: (value / total) * 100 for key, value in scores.items()}
+    rounded = {key: int(round(value)) for key, value in raw.items()}
+    diff = 100 - sum(rounded.values())
+    rounded[classification.dominant_lens] = max(0, rounded[classification.dominant_lens] + diff)
+
+    dominant = classification.dominant_lens
+    max_key = max(rounded, key=rounded.get)
+    if max_key != dominant and rounded[max_key] >= rounded[dominant]:
+        delta = rounded[max_key] - rounded[dominant] + 1
+        rounded[dominant] += delta
+        rounded[max_key] = max(0, rounded[max_key] - delta)
+        rebalance = 100 - sum(rounded.values())
+        rounded[dominant] += rebalance
+
+    return LensMix(**rounded)
+
+
+def tone_stress_from_classification(classification: Classification) -> ToneStress:
+    tone_weights = {
+        "تهدیدکننده": 95,
+        "تند": 82,
+        "تحقیرکننده": 78,
+        "کنترل‌گر": 76,
+        "گناه‌دهنده": 72,
+        "سرزنش‌گر": 70,
+        "منفعل-پرخاشگر": 66,
+        "کنایه‌آمیز": 58,
+        "دفاعی": 54,
+        "قربانی‌گونه": 52,
+        "تعیین‌کننده مرز روابط": 46,
+        "غمگین": 42,
+        "سرد": 40,
+        "حسادت‌آمیز": 40,
+        "رسمی": 28,
+        "مبهم": 34,
+    }
+    if classification.safety_label == "high_risk":
+        return ToneStress(label="پرخطر", intensity=95)
+    if not classification.tones:
+        return ToneStress()
+    label = max(classification.tones, key=lambda tone: tone_weights.get(tone, 35))
+    return ToneStress(label=label, intensity=tone_weights.get(label, 35))
+
+
 async def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classification) -> FreeDecodeOutput | None:
     settings = get_settings()
     schema_hint = {
@@ -284,6 +356,8 @@ async def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classifica
         "dominant_lens_explanation": "string",
         "why_this_lens": "string",
         "secondary_lenses": [{"fa": "شأن و احترام", "en": "Serotonin Lens", "key": "serotonin"}],
+        "lens_mix": {"dopamine": 20, "oxytocin": 65, "serotonin": 15},
+        "tone_stress": {"label": "کنایه‌آمیز", "intensity": 58},
         "likely_underlying_need": "string",
         "conversation_risk": "string",
         "recommended_direction": "string",
@@ -310,35 +384,44 @@ async def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classifica
         "json_schema_shape": schema_hint,
     }
     cache_key = hashlib.sha256(json.dumps(user_prompt, sort_keys=True).encode()).hexdigest()
-    if settings.ai_semantic_cache_enabled:
+    if settings.ai_semantic_cache_enabled and not payload.ghost_mode:
         cached = get_cached_response(task="free_decode", cache_key=cache_key)
         if cached:
+            cached["lens_mix"] = lens_mix_from_classification(classification).model_dump()
+            cached["tone_stress"] = tone_stress_from_classification(classification).model_dump()
             return FreeDecodeOutput.model_validate(cached)
     data = await _chat_json(user_prompt, model=_model_for_task("free"))
     if data is None:
         return None
-    if settings.ai_semantic_cache_enabled:
-        set_cached_response(task="free_decode", cache_key=cache_key, response=data, model_used=_model_for_task("free"))
     if has_sensitive_info(payload.message_text) and not data.get("privacy_warning"):
         data["privacy_warning"] = "برای امنیت، بهتر است اطلاعات شخصی مثل شماره، آدرس یا نام کامل را حذف کنی."
+    data["lens_mix"] = lens_mix_from_classification(classification).model_dump()
+    data["tone_stress"] = tone_stress_from_classification(classification).model_dump()
+    if settings.ai_semantic_cache_enabled and not payload.ghost_mode:
+        set_cached_response(task="free_decode", cache_key=cache_key, response=data, model_used=_model_for_task("free"))
     try:
         return FreeDecodeOutput.model_validate(data)
     except Exception:
         return None
 
 
-async def _paid_decode_with_ai(free_output: FreeDecodeOutput, relationship_type: str, user_goal: str) -> PaidDecodeOutput | None:
+async def _paid_decode_with_ai(
+    free_output: FreeDecodeOutput,
+    relationship_type: str,
+    user_goal: str,
+    contact_profile_summary: str | None = None,
+) -> PaidDecodeOutput | None:
     settings = get_settings()
     schema_hint = {
         "deep_read": "string",
         "dominant_lens": free_output.dominant_lens.model_dump(),
         "secondary_lenses": [lens.model_dump() for lens in free_output.secondary_lenses],
         "reply_options": [
-            {"label": "نرم", "text": "string", "why_it_works": "string"},
-            {"label": "تعیین‌کننده مرز روابط", "text": "string", "why_it_works": "string"},
-            {"label": "کوتاه", "text": "string", "why_it_works": "string"},
-            {"label": "قاطع و آرام", "text": "string", "why_it_works": "string"},
-            {"label": "هدف‌محور", "text": "string", "why_it_works": "string"},
+            {"label": "نرم", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
+            {"label": "تعیین‌کننده مرز روابط", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
+            {"label": "کوتاه", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
+            {"label": "قاطع و آرام", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
+            {"label": "هدف‌محور", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
         ],
         "words_to_avoid": ["string"],
         "safe_opening_line": "string",
@@ -351,6 +434,7 @@ async def _paid_decode_with_ai(free_output: FreeDecodeOutput, relationship_type:
         "free_output": free_output.model_dump(),
         "relationship_type": relationship_type,
         "user_goal": user_goal,
+        "contact_profile_summary": contact_profile_summary,
         "reply_playbook": paid_reply_playbook(relationship_type, user_goal, free_output.dominant_lens.key),
         "requirements": [
             "۴ تا ۵ پاسخ آماده و قابل کپی بده؛ پاسخ‌ها واقعاً از نظر زاویه و کاربرد متفاوت باشند.",
@@ -358,6 +442,7 @@ async def _paid_decode_with_ai(free_output: FreeDecodeOutput, relationship_type:
             "برای کار لحن حرفه‌ای، برای رابطه لحن انسانی و بدون التماس، برای اکس محترمانه و تعیین‌کننده مرز روابط باشد.",
             "copy_ready_reply را از بهترین ترکیب برای user_goal بساز، نه الزاماً اولین پاسخ.",
             "کلمات ممنوع و دلیل هر پاسخ را بده.",
+            "برای هر reply_options یک reaction_prediction کوتاه بده که واکنش احتمالی طرف مقابل را بدون قطعیت‌نمایی توضیح دهد.",
             "نسخه با استناد به Message Decoder اختیاری و نرم باشد.",
             "هیچ پاسخ manipulative، guilt-trip، تحقیرآمیز یا تحریک‌کننده تولید نکن.",
             "فارسی طبیعی بنویس، نه رباتی یا بیش از حد روانشناسانه.",
@@ -422,4 +507,3 @@ def _parse_json_object(content: str) -> dict[str, Any] | None:
             return value if isinstance(value, dict) else None
         except json.JSONDecodeError:
             return None
-

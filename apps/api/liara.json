@@ -5,5 +5,11 @@
     "version": "3.12",
     "mirror": true,
     "timezone": "Asia/Tehran"
-  }
+  },
+  "disks": [
+    {
+      "name": "data",
+      "mountTo": "/data"
+    }
+  ]
 }

@@ -27,6 +27,8 @@ export type FreeDecodeResponse = {
     dominant_lens_explanation: string;
     why_this_lens: string;
     secondary_lenses: { fa: string; en: string; key: string }[];
+    lens_mix?: { dopamine: number; oxytocin: number; serotonin: number };
+    tone_stress?: { label: string; intensity: number };
     likely_underlying_need: string;
     conversation_risk: string;
     recommended_direction: string;
@@ -48,13 +50,53 @@ export type PaidDecodeResponse = {
   credit_balance: number;
   paid_output: {
     deep_read: string;
-    reply_options: { label: string; text: string; why_it_works: string }[];
+    reply_options: { label: string; text: string; why_it_works: string; reaction_prediction?: string | null }[];
     words_to_avoid: string[];
     safe_opening_line: string;
     copy_ready_reply: string;
     attribution_reply?: string | null;
     follow_up_question: string;
   };
+};
+
+export type DecodeHistoryItem = {
+  id: string;
+  created_at: string;
+  relationship_type: string;
+  user_goal: string;
+  safety_label: string;
+  dominant_lens: string;
+  confidence_level: string;
+  has_paid_output: boolean;
+  message_preview?: string | null;
+  free_output: NonNullable<FreeDecodeResponse["free_output"]>;
+  paid_output?: PaidDecodeResponse["paid_output"] | null;
+};
+
+export type Contact = {
+  id: string;
+  name: string;
+  relationship_type: RelationshipType;
+  default_goal?: UserGoal | null;
+  profile_summary?: string | null;
+  interaction_count: number;
+  created_at: string;
+};
+
+export type ContactIn = {
+  name: string;
+  relationship_type: RelationshipType;
+  default_goal?: UserGoal | null;
+  profile_summary?: string | null;
+};
+
+export type RelationshipThermometer = {
+  contact_id: string;
+  interaction_count: number;
+  defensive_trend: number;
+  warmth_score: number;
+  label: string;
+  summary: string;
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (
@@ -75,7 +117,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    let errorMessage = "خطا در ارتباط با سرور";
+    let errorMessage = "ارتباط برقرار نشد. چند لحظه دیگر دوباره تلاش کنید.";
     if (body.detail) {
       if (typeof body.detail === "string") {
         errorMessage = body.detail;
@@ -96,9 +138,12 @@ export function freeDecode(input: {
   user_goal: UserGoal;
   optional_context?: string;
   privacy_consent: "none" | "history" | "anonymized";
-}) {
+  contact_id?: string | null;
+  ghost_mode?: boolean;
+}, token?: string | null) {
   return request<FreeDecodeResponse>("/decode/free", {
     method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: JSON.stringify(input)
   });
 }
@@ -118,18 +163,26 @@ export function verifyOtp(phone: string, code: string) {
 }
 
 export function createPayment(token: string, package_id: "credits_5" | "credits_20" | "credits_50") {
-  return request<{ payment_id: string; payment_url: string; amount: number; credits: number }>("/payment/create", {
+  return request<{ payment_id: string; payment_url: string; amount: number; credits: number; authority?: string | null }>("/payment/create", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ package_id })
   });
 }
 
-export function verifyPayment(token: string, payment_id: string) {
-  return request<{ payment_id: string; status: string; credit_balance: number }>("/payment/verify", {
+export function verifyPayment(
+  token: string,
+  payment_id: string,
+  options: { authority?: string | null; status?: string | null } = {}
+) {
+  return request<{ payment_id: string; status: string; credit_balance: number; ref_id?: string | null }>("/payment/verify", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ payment_id, status: "sandbox_success" })
+    body: JSON.stringify({
+      payment_id,
+      authority: options.authority ?? undefined,
+      status: options.status ?? "sandbox_success"
+    })
   });
 }
 
@@ -138,6 +191,26 @@ export function paidDecode(token: string, decode_id: string) {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ decode_id })
+  });
+}
+
+export function getDecodeHistory(token: string) {
+  return request<{ items: DecodeHistoryItem[] }>("/decode/history", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function deleteDecode(token: string, decode_id: string) {
+  return request<{ ok: boolean }>(`/decode/${decode_id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function deleteStoredData(token: string) {
+  return request<{ ok: boolean; deleted_decodes: number; deleted_messages: number; deleted_contacts: number }>("/user/stored-data", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
   });
 }
 
@@ -164,6 +237,20 @@ export function sendFeedback(input: {
   });
 }
 
+export function sendSelectedReplyFeedback(input: {
+  decode_id: string;
+  selected_reply_label: string;
+  copied_response?: boolean;
+  outcome?: string;
+  contact_id?: string | null;
+}, token?: string | null) {
+  return request<{ ok: boolean }>("/feedback/selected-reply", {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: JSON.stringify(input)
+  });
+}
+
 export function adminMetrics(token: string) {
   return request<{
     users: number;
@@ -176,5 +263,89 @@ export function adminMetrics(token: string) {
     safety: { safety_label: string; count: number }[];
   }>("/admin/metrics", {
     headers: { "X-Admin-Token": token }
+  });
+}
+
+export type AdminDecodeItem = {
+  id: string;
+  created_at: string;
+  paid_at?: string | null;
+  relationship_type: string;
+  user_goal: string;
+  privacy_consent: string;
+  safety_label: string;
+  dominant_lens: string;
+  secondary_lenses: string[];
+  confidence_level: string;
+  prompt_version: string;
+  model_version: string;
+  free_model_version?: string | null;
+  paid_model_version?: string | null;
+  rule_engine_version?: string | null;
+  output_schema_version?: string | null;
+  has_paid_output: boolean;
+  anonymized_preview?: string | null;
+  feedback_count: number;
+  copy_count: number;
+};
+
+export function adminDecodeList(
+  token: string,
+  filters: {
+    relationship_type?: string;
+    dominant_lens?: string;
+    safety_label?: string;
+    prompt_version?: string;
+    limit?: number;
+    offset?: number;
+  } = {}
+) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return request<{ items: AdminDecodeItem[]; total: number; limit: number; offset: number }>(
+    `/admin/decodes${query ? `?${query}` : ""}`,
+    { headers: { "X-Admin-Token": token } }
+  );
+}
+
+// ─── Contacts CRUD ────────────────────────────────────────────────────────────
+
+export function getContacts(token: string) {
+  return request<Contact[]>("/contacts", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function createContact(token: string, payload: ContactIn) {
+  return request<Contact>("/contacts", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateContact(token: string, id: string, payload: ContactIn) {
+  return request<Contact>(`/contacts/${id}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteContact(token: string, id: string) {
+  return request<{ ok: boolean }>(`/contacts/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function getRelationshipThermometer(token: string, id: string) {
+  return request<RelationshipThermometer>(`/contacts/${id}/thermometer`, {
+    headers: { Authorization: `Bearer ${token}` }
   });
 }
