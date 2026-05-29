@@ -113,6 +113,7 @@ textarea:focus-visible {
 
 .page {
   min-height: 100vh;
+  overflow-x: clip;
   background: var(--cds-background);
   color: var(--cds-text-primary);
 }
@@ -120,6 +121,7 @@ textarea:focus-visible {
 .shell {
   width: min(1184px, calc(100% - 32px));
   margin: 0 auto;
+  min-width: 0;
 }
 
 .topbar {
@@ -192,6 +194,7 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--cds-spacing-03);
+  min-width: 0;
 }
 
 .nav-cta,
@@ -321,7 +324,9 @@ textarea:focus-visible {
 .btn-primary,
 .btn-secondary,
 .feedback-btn,
-.primary {
+.primary,
+.secondary,
+.icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -353,7 +358,8 @@ textarea:focus-visible {
   background: var(--cds-button-secondary);
 }
 
-.btn-secondary:hover:not(:disabled) {
+.btn-secondary:hover:not(:disabled),
+.secondary:hover:not(:disabled) {
   background: var(--cds-button-secondary-hover);
 }
 
@@ -363,6 +369,31 @@ textarea:focus-visible {
   cursor: not-allowed;
   color: #8d8d8d;
   background: #c6c6c6;
+}
+
+.secondary {
+  color: var(--cds-text-on-color);
+  background: var(--cds-button-secondary);
+}
+
+.icon-button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 8px;
+  border: 1px solid var(--cds-border-subtle-01);
+  color: var(--cds-text-primary);
+  background: var(--cds-background);
+}
+
+.icon-button:hover:not(:disabled) {
+  border-color: var(--cds-button-primary);
+  color: var(--cds-button-primary);
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  color: #8d8d8d;
+  background: #f4f4f4;
 }
 
 .btn-wide {
@@ -1075,6 +1106,19 @@ textarea:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: var(--cds-spacing-03);
+}
+
+.advanced-toggle {
+  align-self: flex-start;
+}
+
+.advanced-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-05);
+  border: 1px solid var(--cds-border-subtle-00);
+  padding: var(--cds-spacing-05);
+  background: var(--cds-layer-01);
 }
 
 .form-row,
@@ -1825,6 +1869,103 @@ select:focus {
   margin-top: var(--cds-spacing-05);
 }
 
+.onboarding-section,
+.dashboard-section {
+  padding-top: var(--cds-spacing-09);
+}
+
+.onboarding-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(320px, 0.75fr);
+  gap: var(--cds-spacing-07);
+  align-items: start;
+}
+
+.onboarding-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-05);
+}
+
+.eyebrow {
+  color: var(--cds-support-info);
+  font-size: 13px;
+  font-weight: var(--font-bold);
+  line-height: 18px;
+}
+
+.onboarding-copy h1 {
+  color: var(--cds-text-primary);
+  font-size: clamp(36px, 6vw, 64px);
+  line-height: 1.05;
+}
+
+.onboarding-copy p {
+  max-width: 720px;
+  color: var(--cds-text-secondary);
+  font-size: 17px;
+  line-height: 30px;
+}
+
+.onboarding-steps {
+  display: grid;
+  gap: var(--cds-spacing-03);
+}
+
+.onboarding-steps div {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--cds-spacing-03);
+  align-items: center;
+  border: 1px solid var(--cds-border-subtle-00);
+  padding: var(--cds-spacing-04);
+  background: var(--cds-layer-02);
+}
+
+.onboarding-steps strong {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--cds-text-on-color);
+  background: var(--cds-button-primary);
+}
+
+.signup-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-05);
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--cds-spacing-05);
+}
+
+.referral-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-04);
+  border: 1px solid var(--cds-border-subtle-00);
+  padding: var(--cds-spacing-05);
+  background: var(--cds-layer-01);
+}
+
+.referral-box strong {
+  color: var(--cds-text-primary);
+  font-size: 28px;
+  line-height: 34px;
+  letter-spacing: 0;
+}
+
+.referral-box span {
+  overflow-wrap: anywhere;
+  color: var(--cds-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
 .animate-spin {
   animation: spin 0.9s linear infinite;
 }
@@ -1976,15 +2117,75 @@ select:focus {
   padding: var(--cds-spacing-08) 0 var(--cds-spacing-10);
 }
 
+.admin-login-section {
+  min-height: calc(100vh - 72px);
+  padding: var(--cds-spacing-09) var(--cds-spacing-05);
+  display: grid;
+  place-items: center;
+}
+
+.admin-login-card {
+  width: min(100%, 440px);
+  border: 1px solid var(--cds-border-subtle-00);
+  border-radius: var(--radius-sm);
+  padding: var(--cds-spacing-07);
+  background: var(--cds-background);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 8%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-05);
+}
+
+.admin-login-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--cds-text-on-color);
+  background: var(--cds-button-primary);
+  display: grid;
+  place-items: center;
+}
+
+.admin-login-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-02);
+}
+
+.admin-login-copy span {
+  color: var(--cds-support-info);
+  font-size: 12px;
+  font-weight: var(--font-bold);
+  line-height: 16px;
+}
+
+.admin-login-copy h1 {
+  color: var(--cds-text-primary);
+  font-size: 28px;
+  line-height: 36px;
+}
+
+.admin-login-copy p {
+  color: var(--cds-text-secondary);
+  font-size: 14px;
+  line-height: 24px;
+}
+
 .admin-toolbar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--cds-spacing-05);
   align-items: end;
 }
 
 .admin-load-button {
   white-space: nowrap;
+}
+
+.success {
+  border-right: 4px solid var(--cds-support-success);
+  padding: var(--cds-spacing-04);
+  color: var(--cds-support-success);
+  background: var(--cds-support-success-light);
 }
 
 .admin-list-heading {
@@ -2070,10 +2271,46 @@ select:focus {
   background: #fcf4d6;
 }
 
+.admin-pill.sent,
+.admin-pill.verified,
+.admin-pill.paid {
+  border-color: var(--cds-support-success);
+  color: var(--cds-support-success);
+  background: var(--cds-support-success-light);
+}
+
+.admin-pill.failed {
+  border-color: var(--cds-support-error);
+  color: var(--cds-support-error);
+  background: var(--cds-support-error-light);
+}
+
 .admin-badges {
   display: flex;
   flex-wrap: wrap;
   gap: var(--cds-spacing-03);
+}
+
+.admin-activity-table td:nth-child(4),
+.admin-activity-table td:nth-child(5) {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+
+.admin-event-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-event-title strong {
+  color: var(--cds-text-primary);
+  font-weight: var(--font-semibold);
+}
+
+.admin-event-title span {
+  color: var(--cds-text-secondary);
+  font-size: 12px;
 }
 
 .payment-callback-card {
@@ -2126,7 +2363,8 @@ select:focus {
   .hero-layout,
   .workspace-grid,
   .story-layout,
-  .science-layout {
+  .science-layout,
+  .onboarding-layout {
     grid-template-columns: 1fr;
   }
 
@@ -2151,6 +2389,7 @@ select:focus {
   .form-row,
   .admin-toolbar,
   .grid,
+  .dashboard-grid,
   .result {
     grid-template-columns: 1fr;
   }
@@ -2175,8 +2414,51 @@ select:focus {
 }
 
 @media (max-width: 620px) {
+  html,
+  body,
+  .page {
+    width: 100vw;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .topbar,
+  .hero-section,
+  .decoder-section,
+  .neuroscience-section,
+  .benefits-section,
+  .lenses-section,
+  .story-section,
+  .before-after-section,
+  .final-cta-section {
+    width: 100vw;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  body * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .shell {
-    width: min(100% - 24px, 1184px);
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .topbar-inner,
+  .hero-layout,
+  .workspace-grid,
+  .onboarding-layout,
+  .section-heading,
+  .hero-copy,
+  .onboarding-copy,
+  .panel-card {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .brand-text {
@@ -2190,6 +2472,8 @@ select:focus {
 
   .nav-actions {
     gap: 6px;
+    justify-content: flex-end;
+    overflow-x: auto;
   }
 
   .nav-cta,
@@ -2204,6 +2488,24 @@ select:focus {
   .hero-copy h1 {
     font-size: 32px;
     line-height: 40px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .section-heading h1,
+  .section-heading h2,
+  .onboarding-copy h1,
+  .panel-title h3,
+  .result-card h3,
+  .premium-lock-details h3,
+  .hero-subtitle,
+  .section-heading p,
+  .onboarding-copy p,
+  .panel-title p,
+  .result-card p {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .hero-subtitle,
@@ -2241,28 +2543,38 @@ select:focus {
   }
 
   .phone-mockup {
-    transform: scale(0.85);
-    margin: -40px 0;
+    max-width: 100%;
+    overflow: hidden;
+    transform: none;
+    margin: 0;
   }
 
-  .external-popover, .external-card {
-    right: -20px;
-    width: 260px;
+  .phone-frame {
+    width: min(300px, calc(100vw - 48px));
+    height: 616px;
+    border-radius: 44px;
+    transform: none;
   }
 
-  .external-popover {
-    top: 150px;
+  .ios-keyboard {
+    left: 0;
+    right: 0;
+    overflow: hidden;
   }
+
+  .ios-keyboard kbd {
+    max-width: none;
+    padding: 0 2px;
+    font-size: 15px;
+  }
+
+  .phone-frame:hover {
+    transform: none;
+  }
+
+  .external-popover,
   .external-card {
-    bottom: 240px;
-  }
-
-  .safe-reply-card {
-    bottom: 16px;
-  }
-
-  .draft-loop {
-    bottom: 150px;
+    display: none;
   }
 
   .panel-card,
@@ -2272,6 +2584,43 @@ select:focus {
   .comparison-card,
   .auth-modal {
     padding: var(--cds-spacing-05);
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .workspace-grid,
+  .form-grid,
+  .results-panel,
+  .playbook-strip,
+  .advanced-inputs,
+  .contact-memory-card,
+  .history-memory-card,
+  .premium-lock-card {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .playbook-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .mini-action,
+  .nav-cta,
+  .nav-login,
+  .credit-badge,
+  .account-badge,
+  .btn-primary,
+  .btn-secondary,
+  input,
+  select,
+  textarea {
+    max-width: 100%;
+  }
+
+  .section-heading {
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .auth-modal-header {

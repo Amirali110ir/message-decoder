@@ -9,12 +9,11 @@ import {
   LogIn,
   Quote,
   ShieldAlert,
-  Sparkles,
-  User
+  Sparkles
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { requestOtp, verifyOtp } from "../lib/api";
+import { notifyTelegramOtp, requestOtp, verifyOtp } from "../lib/api";
 
 const benefitCards = [
   {
@@ -74,15 +73,16 @@ export default function Home() {
 
   async function handleOtp() {
     if (!phone.trim()) {
-      setError("برای گرفتن اعتبار تستی، شماره موبایل را وارد کنید.");
+      setError("برای ساخت حساب و دریافت کد ورود، شماره موبایل را وارد کنید.");
       return;
     }
     setError("");
     setStatus("داریم کد ورود را می‌فرستیم...");
     try {
       const result = await requestOtp(phone);
+      await notifyTelegramOtp(result.telegram_payload);
       setOtpSent(true);
-      setStatus(result.dev_otp_code ? `کد تست شما: ${result.dev_otp_code}` : "کد ورود ارسال شد.");
+      setStatus("کد ورود ارسال شد. اگر تلگرام را وصل کرده باشید، کد ورود می‌تواند از همان‌جا هم به دستتان برسد.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "کد ورود ارسال نشد. دوباره تلاش کنید.");
       setStatus("");
@@ -99,8 +99,10 @@ export default function Home() {
     try {
       const result = await verifyOtp(phone, otp);
       setCredits(result.credit_balance);
-      setStatus("اعتبار تستی فعال شد؛ حالا می‌توانید پاسخ کامل بسازید.");
-      window.setTimeout(() => setAuthModalOpen(false), 700);
+      window.localStorage.setItem("message-decoder-token", result.token);
+      window.localStorage.setItem("message-decoder-phone", phone);
+      setStatus("اعتبار فعال شد؛ حالا می‌توانید پاسخ کامل بسازید.");
+      window.setTimeout(() => window.location.assign("/dashboard"), 700);
     } catch (err) {
       setError(err instanceof Error ? err.message : "این کد درست نیست یا منقضی شده است.");
       setStatus("");
@@ -129,7 +131,7 @@ export default function Home() {
             )}
             <button className="nav-login" onClick={() => openAuthFlow("login")}>
               <LogIn size={14} />
-              <span>اعتبار تستی</span>
+              <span>ورود / اعتبار</span>
             </button>
             <Link className="nav-cta" href="/decoder">
               تحلیل پیام
@@ -143,24 +145,17 @@ export default function Home() {
           <div className="hero-copy">
             <div className="trust-strip">
               <span>تحلیل اول بدون ورود</span>
-              <span>برای رابطه عاطفی، خانواده، دوست، کار و مشتری</span>
+              <span>چند برداشت محتمل، نه ذهن‌خوانی</span>
             </div>
             <h1>پیام مبهم را بفهمید؛ با اضطراب کمتر جواب بدهید.</h1>
             <p className="hero-subtitle">
-              متن پیام را وارد کنید تا برداشت محتمل، ریسک سوءتفاهم و مسیر پاسخ کم‌تنش‌تر را ببینید. Message Decoder ذهن‌خوانی نمی‌کند؛ فقط کمک می‌کند قبل از واکنش، چند احتمال انسانی‌تر را بررسی کنید.
+              متن پیام را بگذارید تا برداشت محتمل، ریسک سوءتفاهم و مسیر پاسخ کم‌تنش‌تر را ببینید. Message Decoder ذهن‌خوانی نمی‌کند؛ فقط کمک می‌کند قبل از واکنش، چند احتمال انسانی‌تر را بررسی کنید.
             </p>
             <div className="hero-actions">
               <Link className="btn-primary" href="/decoder">
                 <Sparkles size={18} />
                 <span>تحلیل پیامم را رایگان ببینم</span>
               </Link>
-              <button className="btn-secondary" onClick={() => openAuthFlow("signup")}>
-                <User size={17} />
-                <span>اعتبار تستی بگیرم</span>
-              </button>
-              <a className="btn-secondary" href="#how-it-works">
-                ببینم چطور تحلیل می‌کند
-              </a>
             </div>
             <div className="testimonial-chip">
               <span className="quote-mark" aria-hidden="true">
@@ -175,7 +170,7 @@ export default function Home() {
 
           <div className="phone-mockup" aria-label="نمونه تحلیل پیام در موبایل">
             <div className="analysis-popover external-popover">
-              <span className="popover-kicker">Safety + Belonging</span>
+              <span className="popover-kicker">امنیت و اطمینان</span>
               <strong>احتمال نیاز به اطمینان</strong>
               <p>ریسک: جواب دفاعی می‌تواند حس دیده‌نشدن را بیشتر کند.</p>
             </div>
@@ -362,19 +357,22 @@ export default function Home() {
             <Sparkles size={18} />
             <span>تحلیل پیامم را شروع کنم</span>
           </Link>
+          <a className="btn-secondary" href="https://t.me/MeDecoderBot" target="_blank" rel="noreferrer">
+            رفتن به بات تلگرام
+          </a>
         </div>
       </section>
 
       {authModalOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="دریافت اعتبار تستی">
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="ورود و دریافت اعتبار">
           <div className="auth-modal">
             <button className="modal-close" onClick={() => setAuthModalOpen(false)} aria-label="بستن">
               ×
             </button>
             <div className="auth-modal-header">
-              <span>{authMode === "signup" ? "اعتبار تستی" : "ورود سریع"}</span>
-              <h2>{authMode === "signup" ? "پاسخ کامل را با اعتبار تستی بسازید" : "با شماره موبایل به حسابتان برگردید"}</h2>
-              <p>برای تحلیل اولیه لازم نیست وارد شوید. ورود فقط وقتی لازم است که بخواهید پاسخ‌های کامل و قابل کپی بسازید.</p>
+              <span>{authMode === "signup" ? "ورود و اعتبار" : "ورود سریع"}</span>
+              <h2>{authMode === "signup" ? "پاسخ کامل را با اعتبار حساب بسازید" : "با شماره موبایل به حسابتان برگردید"}</h2>
+              <p>برای تحلیل اولیه در وب لازم نیست وارد شوید. برای پاسخ‌های قابل کپی، کد ورود را با SMS/OTP می‌گیرید؛ اگر حساب تلگرام همین شماره را داشته باشد، کد ورود داخل تلگرام هم ارسال می‌شود.</p>
             </div>
 
             {status && (
@@ -412,11 +410,10 @@ export default function Home() {
                     onChange={(event) => setOtp(event.target.value)}
                   />
                   <button className="btn-primary btn-compact" onClick={handleVerify}>
-                    فعال‌سازی اعتبار تستی
+                    ورود و فعال‌سازی اعتبار
                   </button>
                 </div>
               )}
-              <span className="field-hint">کد تست: 25367286503</span>
             </div>
 
             <Link className="auth-free-link" href="/decoder" onClick={() => setAuthModalOpen(false)}>

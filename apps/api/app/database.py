@@ -41,13 +41,19 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 credit_balance INTEGER NOT NULL DEFAULT 0,
                 consent_to_training INTEGER NOT NULL DEFAULT 0,
-                source_channel TEXT NOT NULL DEFAULT 'web'
+                source_channel TEXT NOT NULL DEFAULT 'web',
+                referral_code TEXT UNIQUE,
+                referred_by_user_id TEXT,
+                referral_awarded_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS auth_otps (
                 phone TEXT PRIMARY KEY,
                 code TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                expires_at TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                consumed_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -191,15 +197,64 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS telegram_sessions (
+                telegram_id TEXT PRIMARY KEY,
+                user_id TEXT,
+                chat_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                message_text TEXT,
+                relationship_type TEXT,
+                user_goal TEXT,
+                decode_id TEXT,
+                ghost_mode INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS admin_login_attempts (
+                phone TEXT PRIMARY KEY,
+                failed_count INTEGER NOT NULL DEFAULT 0,
+                locked_until TEXT,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sms_send_logs (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                purpose TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                template_id TEXT,
+                message_id TEXT,
+                status TEXT NOT NULL,
+                request_payload TEXT,
+                response_payload TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL
+            );
             """
         )
+        _ensure_column(conn, "auth_otps", "expires_at", "TEXT")
+        _ensure_column(conn, "auth_otps", "attempts", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "auth_otps", "consumed_at", "TEXT")
+        _ensure_column(conn, "users", "referral_code", "TEXT")
+        _ensure_column(conn, "users", "referred_by_user_id", "TEXT")
+        _ensure_column(conn, "users", "referral_awarded_at", "TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)")
         _ensure_column(conn, "decodes", "free_model_version", "TEXT")
         _ensure_column(conn, "decodes", "paid_model_version", "TEXT")
         _ensure_column(conn, "decodes", "rule_engine_version", "TEXT")
         _ensure_column(conn, "decodes", "output_schema_version", "TEXT")
         _ensure_column(conn, "messages", "contact_id", "TEXT")
+        _ensure_column(conn, "messages", "message_focus", "TEXT")
         _ensure_column(conn, "feedback", "selected_reply_label", "TEXT")
         _ensure_column(conn, "payments", "ref_id", "TEXT")
+        _ensure_column(conn, "contacts", "memory_json", "TEXT")
+        _ensure_column(conn, "contacts", "memory_summary", "TEXT")
+        _ensure_column(conn, "contacts", "updated_at", "TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sms_send_logs_created_at ON sms_send_logs(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sms_send_logs_provider_status ON sms_send_logs(provider, status)")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:

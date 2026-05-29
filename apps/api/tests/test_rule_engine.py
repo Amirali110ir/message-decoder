@@ -1,6 +1,7 @@
 import pytest
 from app.schemas import FreeDecodeIn
 from app.services.ai import classify, free_decode, paid_decode
+from app.services.contact_memory import summarize_message_focus
 from app.utils import normalize_persian
 
 
@@ -136,3 +137,20 @@ async def test_dynamic_fallback_playbooks():
     assert "پایان‌دهنده" in ex_labels
     assert "تعیین‌کننده مرز روابط" in ex_labels
     assert "دلم برات تنگ شده" in paid_ex.words_to_avoid
+
+
+@pytest.mark.anyio
+async def test_message_focus_anchors_generic_fallback_replies():
+    payload = FreeDecodeIn(
+        message_text="من اشتباه کردم داروخانه زدم",
+        relationship_type="unknown",
+        user_goal="understand_only",
+        privacy_consent="none",
+    )
+    focus = summarize_message_focus(payload)
+    free = await free_decode(payload, classify(payload), message_focus=focus)
+    paid = await paid_decode(free, "unknown", "understand_only")
+
+    assert "داروخانه" in free.message_focus
+    assert "داروخانه" in free.why_this_lens
+    assert "داروخانه" in paid.copy_ready_reply

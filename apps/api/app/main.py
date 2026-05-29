@@ -8,11 +8,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import init_db
-from app.routers import admin, auth, contacts, decode, feedback, payments, user
+from app.routers import admin, auth, contacts, decode, feedback, payments, telegram, user
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_settings().validate_for_startup()
     init_db()
     yield
 
@@ -39,6 +40,7 @@ app.include_router(contacts.router)
 app.include_router(decode.router)
 app.include_router(payments.router)
 app.include_router(feedback.router)
+app.include_router(telegram.router)
 app.include_router(admin.router)
 
 static_dir = Path(__file__).resolve().parents[2] / "web_static"
@@ -55,10 +57,14 @@ if static_dir.exists():
 
     @app.get("/admin", include_in_schema=False)
     def web_admin():
-        admin_index = static_dir / "admin" / "index.html"
+        return FileResponse(static_dir / "404.html", status_code=404)
+
+    @app.get("/admin-secure", include_in_schema=False)
+    def web_admin_secure():
+        admin_index = static_dir / "admin-secure" / "index.html"
         if admin_index.exists():
             return FileResponse(admin_index)
-        return FileResponse(static_dir / "admin.html")
+        return FileResponse(static_dir / "404.html", status_code=404)
 
     @app.get("/{path:path}", include_in_schema=False)
     def web_asset(path: str):

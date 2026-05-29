@@ -20,12 +20,16 @@ export type UserGoal =
 export type FreeDecodeResponse = {
   decode_id: string;
   safety_label: string;
+  contact_id?: string | null;
+  contact_profile_summary?: string | null;
   prompt_version: string;
   model_version: string;
   free_output?: {
     dominant_lens: { fa: string; en: string; key: string };
     dominant_lens_explanation: string;
     why_this_lens: string;
+    message_focus?: string | null;
+    personalization_note?: string | null;
     secondary_lenses: { fa: string; en: string; key: string }[];
     lens_mix?: { dopamine: number; oxytocin: number; serotonin: number };
     tone_stress?: { label: string; intensity: number };
@@ -50,6 +54,7 @@ export type PaidDecodeResponse = {
   credit_balance: number;
   paid_output: {
     deep_read: string;
+    personalization_note?: string | null;
     reply_options: { label: string; text: string; why_it_works: string; reaction_prediction?: string | null }[];
     words_to_avoid: string[];
     safe_opening_line: string;
@@ -79,6 +84,7 @@ export type Contact = {
   relationship_type: RelationshipType;
   default_goal?: UserGoal | null;
   profile_summary?: string | null;
+  memory_summary?: string | null;
   interaction_count: number;
   created_at: string;
 };
@@ -103,7 +109,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (
   typeof window !== "undefined"
     ? (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
         ? "http://127.0.0.1:8000"
-        : "")
+        : "https://message-decoder-py.liara.run")
     : "http://127.0.0.1:8000"
 );
 
@@ -139,6 +145,7 @@ export function freeDecode(input: {
   optional_context?: string;
   privacy_consent: "none" | "history" | "anonymized";
   contact_id?: string | null;
+  contact_name?: string | null;
   ghost_mode?: boolean;
 }, token?: string | null) {
   return request<FreeDecodeResponse>("/decode/free", {
@@ -149,16 +156,47 @@ export function freeDecode(input: {
 }
 
 export function requestOtp(phone: string) {
-  return request<{ ok: boolean; dev_otp_code?: string }>("/auth/request-otp", {
+  return request<{ ok: boolean; dev_otp_code?: string; telegram_payload?: any }>("/auth/request-otp", {
     method: "POST",
     body: JSON.stringify({ phone })
   });
+}
+
+function resolveTelegramRelayUrl(): string | null {
+  const explicit = process.env.NEXT_PUBLIC_TELEGRAM_OTP_RELAY_URL;
+  if (explicit) return explicit;
+  if (typeof window === "undefined") return null;
+  return `${window.location.origin}/api/telegram/send-otp`;
+}
+
+export async function notifyTelegramOtp(payload: any) {
+  if (!payload || typeof window === "undefined" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    return;
+  }
+  const url = resolveTelegramRelayUrl();
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payload })
+    });
+  } catch {
+    // Telegram delivery is best-effort; SMS/mock OTP flow should not fail because of it.
+  }
 }
 
 export function verifyOtp(phone: string, code: string) {
   return request<{ token: string; user_id: string; credit_balance: number }>("/auth/verify-otp", {
     method: "POST",
     body: JSON.stringify({ phone, code })
+  });
+}
+
+export function verifyOtpWithReferral(phone: string, code: string, referral_code?: string) {
+  return request<{ token: string; user_id: string; credit_balance: number }>("/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ phone, code, referral_code: referral_code || undefined })
   });
 }
 
@@ -194,8 +232,38 @@ export function paidDecode(token: string, decode_id: string) {
   });
 }
 
+export function paidDecodeGhost(
+  token: string,
+  input: {
+    decode_id: string;
+    free_output: NonNullable<FreeDecodeResponse["free_output"]>;
+    message_text: string;
+    relationship_type: RelationshipType;
+    user_goal: UserGoal;
+    optional_context?: string;
+  }
+) {
+  return request<PaidDecodeResponse>("/decode/paid/ghost", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input)
+  });
+}
+
 export function getDecodeHistory(token: string) {
   return request<{ items: DecodeHistoryItem[] }>("/decode/history", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function getReferral(token: string) {
+  return request<{ referral_code: string; referral_url: string; reward_credits: number }>("/user/referral", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
+export function getCredits(token: string) {
+  return request<{ credit_balance: number }>("/user/credits", {
     headers: { Authorization: `Bearer ${token}` }
   });
 }
@@ -257,12 +325,25 @@ export function adminMetrics(token: string) {
     free_decodes: number;
     paid_decodes: number;
     revenue: number;
+    verified_payments?: number;
+    sms_sent?: number;
+    sms_failed?: number;
+    contacts?: number;
+    referrals?: number;
+    total_credits?: number;
     conversion: number;
     copy_rate: number;
     by_lens: { dominant_lens: string; count: number }[];
     safety: { safety_label: string; count: number }[];
   }>("/admin/metrics", {
     headers: { "X-Admin-Token": token }
+  });
+}
+
+export function adminLogin(phone: string, password: string) {
+  return request<{ token: string }>("/admin/login", {
+    method: "POST",
+    body: JSON.stringify({ phone, password })
   });
 }
 
@@ -288,6 +369,176 @@ export type AdminDecodeItem = {
   feedback_count: number;
   copy_count: number;
 };
+
+export type AdminUserItem = {
+  id: string;
+  phone?: string | null;
+  telegram_id?: string | null;
+  created_at: string;
+  credit_balance: number;
+  source_channel: string;
+  referral_code?: string | null;
+  referred_by_user_id?: string | null;
+  referral_count: number;
+  decodes_count: number;
+  paid_decodes_count: number;
+  contacts_count: number;
+};
+
+export type AdminActivityItem = {
+  id: string;
+  user_id?: string | null;
+  phone?: string | null;
+  event_type: string;
+  title: string;
+  detail?: string | null;
+  status?: string | null;
+  created_at: string;
+};
+
+export function adminUserList(token: string, filters: { q?: string; limit?: number; offset?: number } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return request<{ items: AdminUserItem[]; total: number; limit: number; offset: number }>(
+    `/admin/users${query ? `?${query}` : ""}`,
+    { headers: { "X-Admin-Token": token } }
+  );
+}
+
+export function adminActivityList(token: string, filters: { q?: string; user_id?: string; limit?: number; offset?: number } = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return request<{ items: AdminActivityItem[]; total: number; limit: number; offset: number }>(
+    `/admin/activity${query ? `?${query}` : ""}`,
+    { headers: { "X-Admin-Token": token } }
+  );
+}
+
+export function adminGrantCredits(token: string, input: { user_id?: string; phone?: string; credits: number }) {
+  return request<{ user_id: string; credit_balance: number }>("/admin/credits/grant", {
+    method: "POST",
+    headers: { "X-Admin-Token": token },
+    body: JSON.stringify(input)
+  });
+}
+
+export function adminGrantAllCredits(token: string, credits: number) {
+  return request<{ updated_users: number }>("/admin/credits/grant-all", {
+    method: "POST",
+    headers: { "X-Admin-Token": token },
+    body: JSON.stringify({ credits })
+  });
+}
+
+const TELEGRAM_WORKER_URL = process.env.NEXT_PUBLIC_TELEGRAM_WORKER_URL || "https://message-decoder-telegram.shabestani-am.workers.dev";
+
+async function workerRequest<T>(path: string, token: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${TELEGRAM_WORKER_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Token": token,
+      ...(options.headers ?? {})
+    }
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || body.detail || "درخواست ادمین تلگرام انجام نشد.");
+  }
+  return res.json() as Promise<T>;
+}
+
+export type TelegramAdminUser = {
+  id: string;
+  phone?: string | null;
+  telegram_id: string;
+  credit_balance: number;
+  referral_code?: string | null;
+  referred_by_user_id?: string | null;
+  referral_count?: number;
+  decodes_count?: number;
+  paid_decodes_count?: number;
+  created_at: string;
+  last_decode_at?: string | null;
+};
+
+export type TelegramActivityItem = {
+  id: string;
+  user_id?: string | null;
+  phone?: string | null;
+  telegram_id?: string | null;
+  event_type: string;
+  title: string;
+  detail?: string | null;
+  status?: string | null;
+  created_at: string;
+};
+
+export type TelegramBroadcastResult = {
+  user_id: string;
+  phone?: string | null;
+  telegram_id: string;
+  referral_code?: string | null;
+  status: "sent" | "failed";
+  error?: string | null;
+};
+
+export function telegramAdminMetrics(token: string) {
+  return workerRequest<{
+    users: number;
+    free_decodes: number;
+    paid_decodes: number;
+    referrals: number;
+    total_credits: number;
+    broadcastable_users: number;
+    payments: number;
+    contacts: number;
+  }>("/admin/metrics", token);
+}
+
+export function telegramAdminUsers(token: string, q = "") {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  return workerRequest<{ items: TelegramAdminUser[] }>(`/admin/users${params.toString() ? `?${params}` : ""}`, token);
+}
+
+export function telegramAdminActivity(token: string, q = "") {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  params.set("limit", "80");
+  return workerRequest<{ items: TelegramActivityItem[]; total: number; limit: number }>(`/admin/activity?${params}`, token);
+}
+
+export function telegramGrantCredits(token: string, input: { user_id?: string; phone?: string; credits: number }) {
+  return workerRequest<{ ok: boolean; user_id: string; credit_balance: number }>("/admin/credits/grant", token, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function telegramGrantAllCredits(token: string, credits: number) {
+  return workerRequest<{ ok: boolean; updated_users: number }>("/admin/credits/grant-all", token, {
+    method: "POST",
+    body: JSON.stringify({ credits })
+  });
+}
+
+export function telegramBroadcast(token: string, text: string) {
+  return workerRequest<{ ok: boolean; sent: number; failed: number; results: TelegramBroadcastResult[] }>("/admin/broadcast", token, {
+    method: "POST",
+    body: JSON.stringify({ text })
+  });
+}
 
 export function adminDecodeList(
   token: string,

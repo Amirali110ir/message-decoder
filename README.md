@@ -6,6 +6,7 @@ Persian-first MVP scaffold for decoding emotionally ambiguous, tense, cold, aggr
 
 - `specification.md`: مادر محصول
 - `development_plan.md`: برنامه اجرایی
+- `docs/PRODUCT_TECH_BUSINESS_OVERVIEW.md`: مستند جامع محصول، فنی و منطق کسب‌وکار
 - `apps/api`: FastAPI backend
 - `apps/web`: Next.js RTL web app
 
@@ -34,6 +35,7 @@ Web app: `http://localhost:3000`
 ## MVP Defaults
 
 - AI provider is a deterministic mock pipeline by default.
-- OTP provider is dev/mock and returns `123456` unless configured.
+- OTP provider is dev/mock by default; production can use SMS.ir with `OTP_PROVIDER=smsir`.
 - Payment provider is a Zarinpal-shaped sandbox adapter.
 
+For SMS.ir OTP, set `SMSIR_API_KEY`. With `SMSIR_METHOD=auto`, the app uses `SMSIR_TEMPLATE_ID` and `send/verify` when a verified template is configured; otherwise it uses `SMSIR_LINE_NUMBER` and bulk send with `SMSIR_MESSAGE_TEMPLATE`. Sent and failed SMS attempts are recorded in `sms_send_logs` for later accounting.

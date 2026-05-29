@@ -34,11 +34,28 @@ class RequestOtpIn(BaseModel):
 class RequestOtpOut(BaseModel):
     ok: bool
     dev_otp_code: str | None = None
+    telegram_payload: dict | None = None
+
+
+class TelegramOtpPayloadIn(BaseModel):
+    phone: str = Field(min_length=8, max_length=20)
+
+
+class TelegramOtpPayloadOut(BaseModel):
+    ok: bool
+    chat_id: str | None = None
+    text: str | None = None
+
+
+class TelegramLinkIn(BaseModel):
+    phone: str = Field(min_length=8, max_length=20)
+    telegram_id: str = Field(min_length=1, max_length=64)
 
 
 class VerifyOtpIn(BaseModel):
     phone: str
     code: str
+    referral_code: str | None = Field(default=None, max_length=32)
 
 
 class VerifyOtpOut(BaseModel):
@@ -68,6 +85,8 @@ class FreeDecodeOutput(BaseModel):
     dominant_lens: LensLabel
     dominant_lens_explanation: str
     why_this_lens: str
+    message_focus: str | None = None
+    personalization_note: str | None = None
     secondary_lenses: list[LensLabel] = []
     lens_mix: LensMix = Field(default_factory=LensMix)
     tone_stress: ToneStress = Field(default_factory=ToneStress)
@@ -91,6 +110,7 @@ class PaidDecodeOutput(BaseModel):
     deep_read: str
     dominant_lens: LensLabel
     secondary_lenses: list[LensLabel] = []
+    personalization_note: str | None = None
     reply_options: list[ReplyOption]
     words_to_avoid: list[str]
     safe_opening_line: str
@@ -113,6 +133,7 @@ class FreeDecodeIn(BaseModel):
     optional_context: str | None = Field(default=None, max_length=2000)
     privacy_consent: PrivacyConsent = "none"
     contact_id: str | None = None
+    contact_name: str | None = Field(default=None, max_length=100)
     ghost_mode: bool = False
 
 
@@ -121,12 +142,23 @@ class FreeDecodeResponse(BaseModel):
     safety_label: str
     free_output: FreeDecodeOutput | None = None
     safety_output: SafetyOutput | None = None
+    contact_id: str | None = None
+    contact_profile_summary: str | None = None
     prompt_version: str
     model_version: str
 
 
 class PaidDecodeIn(BaseModel):
     decode_id: str
+
+
+class GhostPaidDecodeIn(BaseModel):
+    decode_id: str
+    free_output: FreeDecodeOutput
+    message_text: str = Field(min_length=1, max_length=4000)
+    relationship_type: RelationshipType = "unknown"
+    user_goal: UserGoal = "understand_only"
+    optional_context: str | None = Field(default=None, max_length=2000)
 
 
 class PaidDecodeResponse(BaseModel):
@@ -164,6 +196,80 @@ class RelationshipThermometerOut(BaseModel):
 
 class CreditsOut(BaseModel):
     credit_balance: int
+
+
+class ReferralOut(BaseModel):
+    referral_code: str
+    referral_url: str
+    reward_credits: int = 5
+
+
+class AdminLoginIn(BaseModel):
+    phone: str = Field(min_length=8, max_length=20)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class AdminLoginOut(BaseModel):
+    token: str
+
+
+class AdminUserItem(BaseModel):
+    id: str
+    phone: str | None = None
+    telegram_id: str | None = None
+    created_at: str
+    credit_balance: int
+    source_channel: str
+    referral_code: str | None = None
+    referred_by_user_id: str | None = None
+    referral_count: int = 0
+    decodes_count: int = 0
+    paid_decodes_count: int = 0
+    contacts_count: int = 0
+
+
+class AdminUserListOut(BaseModel):
+    items: list[AdminUserItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminActivityItem(BaseModel):
+    id: str
+    user_id: str | None = None
+    phone: str | None = None
+    event_type: str
+    title: str
+    detail: str | None = None
+    status: str | None = None
+    created_at: str
+
+
+class AdminActivityListOut(BaseModel):
+    items: list[AdminActivityItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminGrantCreditsIn(BaseModel):
+    user_id: str | None = None
+    phone: str | None = None
+    credits: int = Field(ge=-1000, le=1000)
+
+
+class AdminGrantCreditsOut(BaseModel):
+    user_id: str
+    credit_balance: int
+
+
+class AdminBulkGrantCreditsIn(BaseModel):
+    credits: int = Field(ge=-1000, le=1000)
+
+
+class AdminBulkGrantCreditsOut(BaseModel):
+    updated_users: int
 
 
 class PaymentCreateIn(BaseModel):
@@ -270,5 +376,6 @@ class ContactOut(BaseModel):
     relationship_type: RelationshipType
     default_goal: UserGoal | None = None
     profile_summary: str | None = None
+    memory_summary: str | None = None
     interaction_count: int
     created_at: str

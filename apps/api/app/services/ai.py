@@ -20,9 +20,14 @@ from app.services.rule_engine import (
 from app.utils import has_sensitive_info
 
 
-PROMPT_VERSION = "message-decoder-system-v0.2"
+PROMPT_VERSION = "message-decoder-system-v0.3"
 MODEL_VERSION = "mock-v0.1"
-OUTPUT_SCHEMA_VERSION = "decode-schema-v0.1"
+OUTPUT_SCHEMA_VERSION = "decode-schema-v0.2"
+
+
+class PaidDecodeUnavailable(Exception):
+    pass
+
 
 SYSTEM_PROMPT = """
 تو Message Decoder by NeuroLens هستی.
@@ -81,9 +86,14 @@ def safety_output() -> SafetyOutput:
     )
 
 
-async def free_decode(payload: FreeDecodeIn, classification: Classification) -> FreeDecodeOutput:
+async def free_decode(
+    payload: FreeDecodeIn,
+    classification: Classification,
+    message_focus: str | None = None,
+    contact_memory_context: str | None = None,
+) -> FreeDecodeOutput:
     if _use_ai_provider():
-        ai_output = await _free_decode_with_ai(payload, classification)
+        ai_output = await _free_decode_with_ai(payload, classification, message_focus, contact_memory_context)
         if ai_output is not None:
             return ai_output
 
@@ -122,17 +132,26 @@ async def free_decode(payload: FreeDecodeIn, classification: Classification) -> 
     if classification.tones:
         why_text = f"{why_text} لحن احتمالی پیام: {'، '.join(classification.tones)}."
 
+    focus_prefix = f"با توجه به {message_focus}، " if message_focus else ""
+    personalization = None
+    if contact_memory_context:
+        personalization = "این تحلیل با پرونده مخاطب و الگوهای قبلی همین رابطه تنظیم شده است."
+    elif message_focus:
+        personalization = f"این تحلیل به این موقعیت وصل شده است: {message_focus}."
+
     return FreeDecodeOutput(
         dominant_lens=lens,
         dominant_lens_explanation=explanations[classification.dominant_lens]
         + " این به معنی بالا یا پایین بودن واقعی هورمون طرف مقابل نیست؛ فقط یک لنز رفتاری برای خواندن پیام است.",
-        why_this_lens=why_text,
+        why_this_lens=f"{focus_prefix}{why_text}" if focus_prefix else why_text,
+        message_focus=message_focus,
+        personalization_note=personalization,
         secondary_lenses=[LENSES[key] for key in classification.secondary_lenses],
         lens_mix=lens_mix_from_classification(classification),
         tone_stress=tone_stress_from_classification(classification),
-        likely_underlying_need=classification.hidden_need or needs[classification.dominant_lens],
-        conversation_risk=classification.main_risk or risks[classification.dominant_lens],
-        recommended_direction=classification.recommended_direction or directions[classification.dominant_lens],
+        likely_underlying_need=_with_focus(classification.hidden_need or needs[classification.dominant_lens], message_focus),
+        conversation_risk=_with_focus(classification.main_risk or risks[classification.dominant_lens], message_focus),
+        recommended_direction=_with_focus(classification.recommended_direction or directions[classification.dominant_lens], message_focus),
         confidence=classification.confidence,  # type: ignore[arg-type]
         alternative_read=classification.alternative_interpretation
         or "ممکن است پیام فقط از خستگی، عجله، دلخوری لحظه‌ای یا سبک بیان غیرمستقیم آمده باشد.",
@@ -146,11 +165,25 @@ async def paid_decode(
     relationship_type: str,
     user_goal: str,
     contact_profile_summary: str | None = None,
+    message_text: str | None = None,
+    optional_context: str | None = None,
 ) -> PaidDecodeOutput:
+    settings = get_settings()
+    message_focus = free_output.message_focus
     if _use_ai_provider():
-        ai_output = await _paid_decode_with_ai(free_output, relationship_type, user_goal, contact_profile_summary)
+        ai_output = await _paid_decode_with_ai(
+            free_output,
+            relationship_type,
+            user_goal,
+            contact_profile_summary,
+            message_text,
+            optional_context,
+        )
         if ai_output is not None:
             return ai_output
+        raise PaidDecodeUnavailable("Paid AI generation is unavailable")
+    if settings.is_production:
+        raise PaidDecodeUnavailable("Paid AI generation is not configured")
 
     professional = relationship_type in ("manager_colleague", "customer") or user_goal == "professional_reply"
     is_ex = relationship_type == "ex" or user_goal == "end_conversation"
@@ -245,11 +278,15 @@ async def paid_decode(
             )
         )
     replies = with_reaction_predictions(replies, relationship_type, free_output.dominant_lens.key)
+    if message_focus:
+        replies = _personalize_replies_for_focus(replies, message_focus, professional)
 
     if user_goal == "set_boundary":
         copy_ready = replies[1].text if len(replies) > 1 else replies[0].text
     elif user_goal == "end_conversation":
         copy_ready = replies[-1].text
+    elif message_focus:
+        copy_ready = replies[0].text
     else:
         copy_ready = replies[0].text if professional or relationship_type == "ex" else f"{opening} ولی دوست ندارم با کنایه ادامه بدیم. اگه مستقیم بگی چی اذیتت کرده، بهتر می‌تونم جواب بدم."
 
@@ -257,6 +294,7 @@ async def paid_decode(
         deep_read=f"برداشت عمیق‌تر: {free_output.likely_underlying_need} پاسخ بهتر باید هم ریسک مکالمه را کم کند، هم قدرت و مرز تو را نگه دارد.",
         dominant_lens=free_output.dominant_lens,
         secondary_lenses=free_output.secondary_lenses,
+        personalization_note=_paid_personalization_note(message_focus, contact_profile_summary),
         reply_options=replies,
         words_to_avoid=words,
         safe_opening_line=opening,
@@ -349,12 +387,19 @@ def tone_stress_from_classification(classification: Classification) -> ToneStres
     return ToneStress(label=label, intensity=tone_weights.get(label, 35))
 
 
-async def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classification) -> FreeDecodeOutput | None:
+async def _free_decode_with_ai(
+    payload: FreeDecodeIn,
+    classification: Classification,
+    message_focus: str | None = None,
+    contact_memory_context: str | None = None,
+) -> FreeDecodeOutput | None:
     settings = get_settings()
     schema_hint = {
         "dominant_lens": {"fa": "امنیت و اعتماد", "en": "Oxytocin Lens", "key": "oxytocin"},
         "dominant_lens_explanation": "string",
         "why_this_lens": "string",
+        "message_focus": "string",
+        "personalization_note": "string | null",
         "secondary_lenses": [{"fa": "شأن و احترام", "en": "Serotonin Lens", "key": "serotonin"}],
         "lens_mix": {"dopamine": 20, "oxytocin": 65, "serotonin": 15},
         "tone_stress": {"label": "کنایه‌آمیز", "intensity": 58},
@@ -369,12 +414,16 @@ async def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classifica
     user_prompt = {
         "task": "free_decode",
         "message_text": payload.message_text,
+        "message_focus": message_focus,
         "relationship_type": payload.relationship_type,
         "user_goal": payload.user_goal,
         "optional_context": payload.optional_context,
+        "contact_memory_context": contact_memory_context,
         "rule_engine_analysis": classification_payload(classification),
         "requirements": [
             "پاسخ آماده کامل نده.",
+            "حتماً تحلیل را به message_focus و جزئیات خود message_text وصل کن؛ خروجی عمومی و قابل استفاده برای هر پیام ننویس.",
+            "اگر contact_memory_context وجود دارد، از آن فقط برای شخصی‌سازی محتاطانه استفاده کن و به عنوان تشخیص قطعی شخصیت مخاطب ننویس.",
             "لنز غالب را توضیح بده و تاکید کن تشخیص هورمونی واقعی نیست.",
             "از قطعیت درباره نیت یا شخصیت طرف مقابل پرهیز کن.",
             "از rule_engine_analysis استفاده کن، اما اگر متن خلافش را نشان می‌دهد، محتاطانه اصلاح کن.",
@@ -393,6 +442,9 @@ async def _free_decode_with_ai(payload: FreeDecodeIn, classification: Classifica
     data = await _chat_json(user_prompt, model=_model_for_task("free"))
     if data is None:
         return None
+    data["message_focus"] = data.get("message_focus") or message_focus
+    if contact_memory_context and not data.get("personalization_note"):
+        data["personalization_note"] = "این تحلیل با پرونده مخاطب و زمینه‌های قبلی همین رابطه تنظیم شده است."
     if has_sensitive_info(payload.message_text) and not data.get("privacy_warning"):
         data["privacy_warning"] = "برای امنیت، بهتر است اطلاعات شخصی مثل شماره، آدرس یا نام کامل را حذف کنی."
     data["lens_mix"] = lens_mix_from_classification(classification).model_dump()
@@ -410,12 +462,15 @@ async def _paid_decode_with_ai(
     relationship_type: str,
     user_goal: str,
     contact_profile_summary: str | None = None,
+    message_text: str | None = None,
+    optional_context: str | None = None,
 ) -> PaidDecodeOutput | None:
     settings = get_settings()
     schema_hint = {
         "deep_read": "string",
         "dominant_lens": free_output.dominant_lens.model_dump(),
         "secondary_lenses": [lens.model_dump() for lens in free_output.secondary_lenses],
+        "personalization_note": "string | null",
         "reply_options": [
             {"label": "نرم", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
             {"label": "تعیین‌کننده مرز روابط", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
@@ -431,6 +486,9 @@ async def _paid_decode_with_ai(
     }
     user_prompt = {
         "task": "paid_decode",
+        "message_text": message_text,
+        "message_focus": free_output.message_focus,
+        "optional_context": optional_context,
         "free_output": free_output.model_dump(),
         "relationship_type": relationship_type,
         "user_goal": user_goal,
@@ -438,6 +496,8 @@ async def _paid_decode_with_ai(
         "reply_playbook": paid_reply_playbook(relationship_type, user_goal, free_output.dominant_lens.key),
         "requirements": [
             "۴ تا ۵ پاسخ آماده و قابل کپی بده؛ پاسخ‌ها واقعاً از نظر زاویه و کاربرد متفاوت باشند.",
+            "هر پاسخ باید به message_focus یا جزئیات message_text مربوط باشد. جواب‌هایی مثل «می‌فهمم چرا اینطوری برداشت کردی» بدون اشاره به موضوع مشخص پیام کافی نیست.",
+            "اگر contact_profile_summary وجود دارد، پاسخ را با حافظه همین مخاطب شخصی‌سازی کن اما از برچسب قطعی شخصیتی پرهیز کن.",
             "حتماً این labelها را پوشش بده مگر اینکه context خلافش باشد: نرم، تعیین‌کننده مرز روابط، کوتاه، قاطع و آرام، هدف‌محور.",
             "برای کار لحن حرفه‌ای، برای رابطه لحن انسانی و بدون التماس، برای اکس محترمانه و تعیین‌کننده مرز روابط باشد.",
             "copy_ready_reply را از بهترین ترکیب برای user_goal بساز، نه الزاماً اولین پاسخ.",
@@ -457,6 +517,8 @@ async def _paid_decode_with_ai(
     data = await _chat_json(user_prompt, model=_model_for_task("paid"))
     if data is None:
         return None
+    if free_output.message_focus and not data.get("personalization_note"):
+        data["personalization_note"] = _paid_personalization_note(free_output.message_focus, contact_profile_summary)
     if settings.ai_semantic_cache_enabled:
         set_cached_response(task="paid_decode", cache_key=cache_key, response=data, model_used=_model_for_task("paid"))
     try:
@@ -467,18 +529,23 @@ async def _paid_decode_with_ai(
 
 async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> dict[str, Any] | None:
     settings = get_settings()
-    endpoint = settings.ai_api_base_url.rstrip("/") + "/chat/completions"
+    task = str(user_payload.get("task") or "free_decode")
+    is_paid = task == "paid_decode"
+    endpoint_base = settings.ai_paid_api_base_url if is_paid else settings.ai_api_base_url
+    api_key = settings.ai_paid_api_key if is_paid else settings.ai_api_key
+    temperature = settings.ai_paid_temperature if is_paid else settings.ai_free_temperature
+    endpoint = endpoint_base.rstrip("/") + "/chat/completions"
     body = {
         "model": model or settings.ai_model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
-        "temperature": 0.4,
+        "temperature": temperature,
         "response_format": {"type": "json_object"},
     }
     headers = {
-        "Authorization": f"Bearer {settings.ai_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     try:
@@ -507,3 +574,54 @@ def _parse_json_object(content: str) -> dict[str, Any] | None:
             return value if isinstance(value, dict) else None
         except json.JSONDecodeError:
             return None
+
+
+def _with_focus(text: str, message_focus: str | None) -> str:
+    if not message_focus or message_focus in text:
+        return text
+    return f"در زمینه {message_focus}، {text}"
+
+
+def _personalize_replies_for_focus(
+    replies: list[ReplyOption],
+    message_focus: str,
+    professional: bool,
+) -> list[ReplyOption]:
+    if "داروخانه" in message_focus:
+        if professional:
+            replacements = {
+                "حرفه‌ای": "پیام شما را درباره تصمیم داروخانه و نگرانی‌هایش گرفتم. حق دارید شفافیت بخواهید؛ تا امروز وضعیت هزینه‌ها، مجوزها و قدم بعدی را جمع‌بندی می‌کنم و بدون دفاع اضافه با شما چک می‌کنم.",
+                "کوتاه": "در مورد داروخانه حق دارید شفافیت بخواهید. امروز وضعیت دقیق و قدم بعدی را جمع‌بندی می‌کنم.",
+                "قاطع و آرام": "قبول دارم تصمیم داروخانه نیاز به بررسی دقیق‌تر دارد. بدون توجیه، عددها و ریسک‌ها را دوباره می‌چینم و بعد تصمیم بعدی را روشن می‌کنم.",
+            }
+        else:
+            replacements = {
+                "نرم": "می‌فهمم چرا تصمیم داروخانه ذهنت را درگیر کرده. من هم نمی‌خواهم از روی ترس یا غرور جلو بروم؛ بیا واقع‌بینانه هزینه‌ها، مجوزها و قدم بعدی را دوباره بررسی کنیم.",
+                "تعیین‌کننده مرز روابط": "نگرانی‌ات درباره داروخانه را می‌شنوم، ولی دوست ندارم این موضوع به سرزنش کلی من تبدیل شود. اگر درباره خود تصمیم حرف بزنیم، بهتر می‌توانم مسئولانه بررسی‌اش کنم.",
+                "کوتاه": "در مورد داروخانه نگرانی‌ات را فهمیدم. می‌خواهم با عدد و واقعیت دوباره بررسی‌اش کنم، نه با دفاع یا ترس.",
+                "قاطع و آرام": "ممکن است در تصمیم داروخانه اشتباه کرده باشم، اما می‌خواهم آرام و دقیق اصلاحش کنم. بیایید به جای مقصر پیدا کردن، قدم بعدی را روشن کنیم.",
+            }
+        return [
+            reply.model_copy(update={"text": replacements.get(reply.label, _append_focus(reply.text, message_focus))})
+            for reply in replies
+        ]
+
+    return [
+        reply.model_copy(update={"text": _append_focus(reply.text, message_focus)})
+        for reply in replies
+    ]
+
+
+def _append_focus(text: str, message_focus: str) -> str:
+    if message_focus in text:
+        return text
+    return f"در مورد {message_focus}، {text}"
+
+
+def _paid_personalization_note(message_focus: str | None, contact_profile_summary: str | None) -> str | None:
+    parts: list[str] = []
+    if message_focus:
+        parts.append(f"پاسخ‌ها برای همین موضوع تنظیم شده‌اند: {message_focus}.")
+    if contact_profile_summary:
+        parts.append("حافظه این مخاطب هم در انتخاب لحن و مرزبندی لحاظ شده است.")
+    return " ".join(parts) if parts else None

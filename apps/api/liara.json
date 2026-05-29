@@ -1,7 +1,7 @@
 {
-  "app": "message-decoder",
+  "app": "message-decoder-py",
   "platform": "python",
-  "port": 80,
+  "port": 8000,
   "python": {
     "version": "3.12",
     "mirror": true,

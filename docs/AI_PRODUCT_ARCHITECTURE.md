@@ -1,5 +1,7 @@
 # مستند محصول و معماری هوش مصنوعی Message Decoder
 
+آخرین بازبینی: 2026-05-24
+
 این مستند توضیح می‌دهد بخش هوش مصنوعی Message Decoder چرا ساخته شده، چطور کار می‌کند، هر بلوک معماری چه مسئولیتی دارد، چه خروجی‌هایی باید بدهد و چطور قرار است هر روز بهتر شود. هدف این است که یک نفر جدید، بدون دانستن تاریخچه تصمیم‌ها، بتواند محصول و کد را بفهمد و با اطمینان روی آن کار کند.
 
 ## خلاصه محصول
@@ -39,20 +41,25 @@ Message Decoder یک ابزار فارسی‌زبان برای فهمیدن پی
 
 ```mermaid
 flowchart TD
-    A["User Message + Relationship + Goal"] --> B["Input Validation"]
-    B --> C["Rule Engine"]
-    C --> D{"Safety Risk?"}
-    D -- "Yes" --> E["Safety Output"]
-    D -- "No" --> F["Free Decode"]
-    F --> G{"Paid Requested?"}
-    G -- "No" --> H["Store Decode + Analytics"]
-    G -- "Yes" --> I["Paid Decode Generation"]
-    I --> J["Reply Options + Copy Ready Reply"]
-    H --> K["Feedback + Copy Events"]
-    J --> K
-    K --> L["Daily Learning Report"]
-    L --> M["Candidate Eval Cases"]
-    M --> N["Rule Catalog / Prompt / RAG / Fine-tune Decisions"]
+    A["User Message + Relationship + Goal + Consent"] --> B["Input Validation"]
+    B --> C["Optional Contact Context"]
+    C --> D["Rule Engine"]
+    D --> E{"Safety Risk?"}
+    E -- "Yes" --> F["Safety Output"]
+    E -- "No" --> G["Free Decode + Lens Mix + Tone Stress"]
+    G --> H{"Ghost Mode?"}
+    H -- "Yes" --> I["Return Only / No Persistence / No Paid Flow"]
+    H -- "No" --> J["Store Message + Decode + Versions"]
+    J --> K{"Paid Requested?"}
+    K -- "No" --> L["Analytics"]
+    K -- "Yes" --> M["Paid Decode Generation"]
+    M --> N["Reply Options + Reaction Predictions + Copy Ready Reply"]
+    L --> O["Feedback + Copy Events + Selected Reply"]
+    N --> O
+    O --> P["Quality Signals + Contact Memory"]
+    P --> Q["Daily Learning Report"]
+    Q --> R["Candidate Eval Cases"]
+    R --> S["Rule Catalog / Prompt / RAG / Fine-tune Decisions"]
 ```
 
 این جریان عمداً ساده نگه داشته شده است. سیستم فعلاً دیتای یادگیری را ذخیره و تحلیل می‌کند، اما خودش به شکل خودکار مدل یا رول‌ها را تغییر نمی‌دهد. تغییر واقعی باید با تست و review وارد شود.
@@ -68,10 +75,14 @@ flowchart TD
 - `user_goal`: هدف کاربر، مثل آرام کردن دعوا، مرزبندی، بهبود رابطه، پاسخ حرفه‌ای، مسئولیت‌خواهی، نیازمند به نظر نرسیدن، پایان مکالمه یا فقط فهمیدن.
 - `optional_context`: توضیح اضافه اختیاری.
 - `privacy_consent`: سطح رضایت کاربر برای ذخیره متن.
+- `contact_id`: اتصال اختیاری تحلیل به یک مخاطب ذخیره‌شده.
+- `ghost_mode`: تحلیل بدون ذخیره message و decode.
 
 کد اصلی مسیر ورودی در این فایل است:
 
 `apps/api/app/routers/decode.py`
+
+اگر کاربر لاگین کرده باشد و `contact_id` معتبر بدهد، خلاصه رفتاری مخاطب (`profile_summary`) به context هوش مصنوعی اضافه می‌شود. این کار باعث می‌شود مدل paid و free فقط یک پیام جداافتاده را نبیند و از حافظه رابطه‌ای consentدار کاربر استفاده کند.
 
 ### 2. طبقه‌بندی با رول‌انجین
 
@@ -125,6 +136,8 @@ Free Decode تحلیل پایه را به کاربر می‌دهد:
 - برداشت جایگزین
 - هشدار حریم خصوصی اگر متن حساس باشد
 - CTA برای گرفتن پاسخ آماده
+- `lens_mix`: درصد تقریبی سهم سه لنز.
+- `tone_stress`: برچسب و شدت لحن.
 
 در نسخه رایگان، هدف تولید یک پاسخ کامل پولی نیست. هدف این است که کاربر بفهمد پشت پیام چیست و چرا باید نوع خاصی از جواب را انتخاب کند.
 
@@ -141,6 +154,7 @@ Paid Decode روی ساخت جواب قابل ارسال تمرکز دارد.
 - safe opening line
 - یک copy ready reply
 - یک follow-up question
+- reaction prediction برای هر گزینه پاسخ
 
 گزینه‌ها باید متنوع باشند، نه سه نسخه شبیه هم. برای مثال:
 
@@ -229,6 +243,9 @@ Rule Engine از کاتالوگ استفاده می‌کند و یک `Classifica
 - انتخاب مدل free یا paid
 - fallback به خروجی rule-based وقتی API در دسترس نیست
 - parse و validate کردن JSON خروجی مدل
+- محاسبه اجباری `lens_mix` و `tone_stress` از روی classification، حتی اگر LLM چیز دیگری برگرداند.
+- ساخت `reaction_prediction` برای fallback replies.
+- استفاده از semantic cache برای free و paid، به جز free decode در Ghost Mode.
 
 نسخه‌های مهم:
 
@@ -242,6 +259,42 @@ Rule Engine از کاتالوگ استفاده می‌کند و یک `Classifica
 - مدل قوی‌تر برای paid
 
 این جداسازی مهم است، چون free بیشتر تحلیل سبک و فروش ارزش محصول است، ولی paid باید خروجی دقیق، متنوع و قابل ارسال بدهد.
+
+تنظیمات مرتبط:
+
+- `AI_PROVIDER`: یکی از `mock`، `openai`، `openai_compatible` یا `liara`.
+- `AI_MODEL`: مدل پیش‌فرض.
+- `AI_FREE_MODEL`: مدل task رایگان.
+- `AI_PAID_MODEL`: مدل task پولی.
+- `AI_API_BASE_URL`: endpoint اصلی chat completions.
+- `AI_API_KEY`: کلید اصلی.
+- `AI_SEMANTIC_CACHE_ENABLED`: روشن/خاموش کردن cache.
+
+نکته پیاده‌سازی: در config، فیلدهای `AI_PAID_API_BASE_URL` و `AI_PAID_API_KEY` هم تعریف شده‌اند، اما در نسخه فعلی `_chat_json` عملاً از `AI_API_BASE_URL` و `AI_API_KEY` مشترک استفاده می‌کند. اگر جداسازی واقعی endpoint/key برای paid لازم است، باید `_chat_json` task-aware شود.
+
+## Semantic Cache
+
+فایل:
+
+`apps/api/app/services/cache.py`
+
+جدول:
+
+`semantic_cache`
+
+هدف cache کاهش هزینه و latency برای درخواست‌های تکراری است. کلید cache از payload ساختاریافته prompt ساخته می‌شود، نه فقط متن خام پیام. یعنی رابطه، هدف، context، خروجی rule engine و schema شکل‌دهنده cache هستند.
+
+رفتار فعلی:
+
+- free decode اگر `AI_SEMANTIC_CACHE_ENABLED` روشن باشد و `ghost_mode` خاموش باشد cache می‌شود.
+- paid decode اگر cache روشن باشد cache می‌شود.
+- در free decode، حتی اگر response از cache بیاید، `lens_mix` و `tone_stress` دوباره از classification فعلی محاسبه و روی خروجی cache overwrite می‌شوند.
+- Ghost Mode برای free decode عمداً cache نمی‌نویسد و cache نمی‌خواند، چون وعده محصول در آن حالت عدم ذخیره ردپای تحلیل است.
+
+ریسک‌ها:
+
+- اگر prompt/schema تغییر کند اما payload cache key تغییر کافی نکند، response قدیمی ممکن است برگردد.
+- برای تغییرهای بزرگ prompt یا schema بهتر است نسخه prompt/schema در payload cache لحاظ شود یا cache پاک شود.
 
 ## Decode Router
 
@@ -258,9 +311,12 @@ Rule Engine از کاتالوگ استفاده می‌کند و یک `Classifica
 
 1. پیام classify می‌شود.
 2. اگر safety باشد، خروجی safety برمی‌گردد.
-3. اگر normal باشد، free decode ساخته می‌شود.
-4. پیام و decode در دیتابیس ذخیره می‌شود.
-5. نسخه مدل، پرامپت، رول‌انجین و schema ثبت می‌شود.
+3. اگر contact_id معتبر باشد، خلاصه رفتاری مخاطب به context اضافه می‌شود.
+4. اگر normal یا manipulation redirect باشد، free decode ساخته می‌شود.
+5. اگر `ghost_mode` فعال نباشد، پیام و decode در دیتابیس ذخیره می‌شود.
+6. اگر `ghost_mode` فعال باشد، خروجی فقط برگردانده می‌شود و چیزی برای paid flow ذخیره نمی‌شود.
+7. نسخه مدل، پرامپت، رول‌انجین و schema در decode ذخیره می‌شود.
+8. اگر مخاطب وصل شده باشد و ghost mode خاموش باشد، interaction count مخاطب افزایش می‌یابد.
 
 در paid:
 
@@ -269,6 +325,42 @@ Rule Engine از کاتالوگ استفاده می‌کند و یک `Classifica
 3. اگر paid قبلاً ساخته شده باشد، همان برمی‌گردد.
 4. اگر نه، paid decode ساخته می‌شود و یک credit کم می‌شود.
 5. paid output ذخیره می‌شود.
+6. اگر decode مربوط به Safety Mode باشد، paid reply ساخته نمی‌شود.
+
+## Ghost Mode و مرزهای AI
+
+Ghost Mode در schema ورودی `FreeDecodeIn` با فیلد `ghost_mode` پیاده‌سازی شده است.
+
+وقتی فعال است:
+
+- `messages` و `decodes` نوشته نمی‌شوند.
+- free decode در semantic cache ذخیره نمی‌شود و از cache هم خوانده نمی‌شود.
+- paid decode برای آن تحلیل ممکن نیست، چون decode_id در دیتابیس وجود ندارد.
+- contact interaction count افزایش پیدا نمی‌کند.
+
+این تصمیم محصولی مهم است: حالت شبح فقط برای تحلیل فوری و بدون ردپا است، نه برای history، paid replay یا حافظه رابطه‌ای.
+
+## حافظه مخاطب و AI Context
+
+فایل‌های مرتبط:
+
+- `apps/api/app/routers/contacts.py`
+- `apps/api/app/routers/decode.py`
+- `apps/api/app/routers/feedback.py`
+
+اگر کاربر مخاطبی بسازد، می‌تواند برای او `profile_summary` داشته باشد. در زمان free decode، اگر `contact_id` متعلق به همان user باشد، این summary به `optional_context` اضافه می‌شود:
+
+`خلاصه رفتاری مخاطب ذخیره‌شده: ...`
+
+در paid decode هم `contact_profile_summary` از join بین decode، message و contact خوانده و وارد prompt paid می‌شود.
+
+وقتی کاربر از مسیر `/feedback/selected-reply` اعلام کند کدام پاسخ را انتخاب کرده و outcome چه بوده، سیستم یک جمله کوتاه به `profile_summary` همان مخاطب اضافه می‌کند. این فعلاً یک حافظه ساده append-only است، نه memory embedding یا RAG؛ اما پایه personalization و lock-in رابطه‌ای محصول است.
+
+مرز مهم:
+
+- حافظه مخاطب فقط برای کاربر لاگین‌کرده و contact متعلق به خودش استفاده می‌شود.
+- Ghost Mode نباید حافظه مخاطب را آپدیت کند.
+- profile summary نباید تبدیل به تشخیص شخصیت یا برچسب روانشناختی شود.
 
 ## Learning Layer
 
@@ -289,6 +381,8 @@ Rule Engine از کاتالوگ استفاده می‌کند و یک `Classifica
 - regret score
 - copy events
 - favorite reply label
+- selected reply label
+- selected reply outcome
 - user comment
 
 خروجی‌های یادگیری:
@@ -359,6 +453,7 @@ Endpoint:
 Endpointهای ادمین برای مشاهده و کنترل کیفیت:
 
 - `GET /admin/metrics`
+- `GET /admin/decodes`
 - `GET /admin/learning/daily`
 - `POST /admin/rule-engine/explain`
 - `GET /admin/rule-engine/eval`
@@ -374,6 +469,8 @@ Endpointهای ادمین برای مشاهده و کنترل کیفیت:
 - `decodes`
 - `feedback`
 - `copy_events`
+- `semantic_cache`
+- `contacts`
 - `quality_signals`
 - `daily_learning_reports`
 
@@ -403,6 +500,8 @@ Endpointهای ادمین برای مشاهده و کنترل کیفیت:
 7. اگر paid است، چه گزینه‌های متنوعی باید ساخته شود؟
 8. چه کلماتی نباید استفاده شود؟
 9. بهترین reply آماده چیست؟
+10. واکنش احتمالی طرف مقابل به هر reply چیست؟
+11. آیا این output باید در history/cache/contact memory ذخیره شود یا نه؟
 
 این معماری باعث می‌شود مدل فقط «متن قشنگ» نسازد؛ مدل باید در چارچوب تصمیم محصول جواب بدهد.
 
@@ -546,6 +645,13 @@ flowchart LR
 
 اصل مهم: داده مردم فقط وقتی برای یادگیری یا training استفاده شود که consent مناسب وجود داشته باشد. حتی در حالت consent، باید anonymization، حذف اطلاعات حساس و سیاست نگهداری داده رعایت شود.
 
+در نسخه فعلی، `privacy_consent` و `ghost_mode` دو مفهوم جدا هستند:
+
+- `privacy_consent` تعیین می‌کند اگر تحلیل ذخیره شد، متن خام یا anonymized چگونه ذخیره شود.
+- `ghost_mode` تعیین می‌کند اصلاً ذخیره‌ای انجام شود یا نه.
+
+بنابراین اگر کاربر `privacy_consent = history` بدهد اما `ghost_mode = true` باشد، Ghost Mode غالب است و message/decode ذخیره نمی‌شود. این رفتار در تست `test_ghost_mode_does_not_persist_message_or_decode` پوشش داده شده است.
+
 ## رفتار در درخواست‌های ناسالم
 
 اگر کاربر چیزی بخواهد مثل:
@@ -596,6 +702,7 @@ flowchart LR
 - یک گزینه مرزدار.
 - یک گزینه متناسب با رابطه و هدف.
 - توضیح why it works.
+- reaction prediction کوتاه و غیرقطعی برای هر گزینه.
 
 ### Learning Layer
 
@@ -650,6 +757,8 @@ flowchart LR
 - بهتر کردن prompt paid برای تنوع جواب‌ها.
 - ساخت داشبورد ساده برای eval metrics.
 - افزودن categoryهای بیشتر برای toneهای فارسی.
+- task-aware کردن `_chat_json` برای استفاده واقعی از `AI_PAID_API_BASE_URL` و `AI_PAID_API_KEY`.
+- اضافه کردن prompt/schema version به cache key یا سیاست پاک‌سازی cache بعد از تغییرهای بزرگ.
 
 ### میان‌مدت
 
@@ -657,6 +766,7 @@ flowchart LR
 - ذخیره replyهای موفق با consent.
 - ساخت مجموعه golden cases برای هر رابطه و هدف.
 - اضافه کردن LLM judge برای natural Persian و copy readiness.
+- تبدیل `profile_summary` مخاطب از append ساده به summary ساختاریافته و قابل کنترل.
 
 ### بلندمدت
 
@@ -670,7 +780,9 @@ flowchart LR
 - `apps/api/app/services/rule_catalog.py`: دانش rule engine.
 - `apps/api/app/services/rule_engine.py`: منطق classification.
 - `apps/api/app/services/ai.py`: پرامپت، مدل و تولید خروجی.
+- `apps/api/app/services/cache.py`: semantic cache برای خروجی‌های AI.
 - `apps/api/app/routers/decode.py`: جریان free و paid decode.
+- `apps/api/app/routers/contacts.py`: مخاطبین، حافظه رابطه‌ای و relationship thermometer.
 - `apps/api/app/routers/feedback.py`: ثبت فیدبک و سیگنال کیفیت.
 - `apps/api/app/services/learning.py`: گزارش یادگیری روزانه.
 - `apps/api/app/services/rule_eval.py`: eval suite و candidate cases.

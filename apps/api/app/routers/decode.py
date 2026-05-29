@@ -4,11 +4,21 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from typing import Optional
 
 from app.database import db
-from app.schemas import DecodeHistoryItem, DecodeHistoryOut, FreeDecodeIn, FreeDecodeResponse, OkOut, PaidDecodeIn, PaidDecodeResponse
+from app.schemas import (
+    DecodeHistoryItem,
+    DecodeHistoryOut,
+    FreeDecodeIn,
+    FreeDecodeResponse,
+    GhostPaidDecodeIn,
+    OkOut,
+    PaidDecodeIn,
+    PaidDecodeResponse,
+)
 from app.services.analytics import track
 from app.services.ai import (
     OUTPUT_SCHEMA_VERSION,
     PROMPT_VERSION,
+    PaidDecodeUnavailable,
     RULE_ENGINE_VERSION,
     classify,
     current_model_version,
@@ -17,6 +27,12 @@ from app.services.ai import (
     safety_output,
 )
 from app.services.auth import get_current_user_id
+from app.services.contact_memory import (
+    build_contact_prompt_context,
+    resolve_contact_for_decode,
+    summarize_message_focus,
+    update_contact_memory,
+)
 from app.services.privacy import delete_messages_with_decodes
 from app.utils import anonymize_text, dumps, loads, new_id, now_iso
 
@@ -37,28 +53,33 @@ async def create_free_decode(
             if _row:
                 user_id = str(_row["user_id"])
 
-    ai_payload = payload
-    contact_profile_summary = None
-    if payload.contact_id and user_id:
+    contact_memory = None
+    if user_id and not payload.ghost_mode:
         with db() as conn:
-            contact = conn.execute(
-                "SELECT profile_summary FROM contacts WHERE id = ? AND user_id = ?",
-                (payload.contact_id, user_id),
-            ).fetchone()
-        if contact and contact["profile_summary"]:
-            contact_profile_summary = str(contact["profile_summary"])
-            profile_context = f"خلاصه رفتاری مخاطب ذخیره‌شده: {contact_profile_summary}"
-            optional_context = "\n".join(
-                part for part in (payload.optional_context, profile_context) if part
-            )
-            ai_payload = payload.model_copy(update={"optional_context": optional_context})
+            contact_memory = resolve_contact_for_decode(conn, user_id=user_id, payload=payload)
+
+    message_focus = summarize_message_focus(payload, contact_memory)
+    contact_memory_context = build_contact_prompt_context(contact_memory, message_focus)
+    contact_profile_summary = contact_memory_context or (contact_memory.profile_summary if contact_memory else None)
+    ai_payload = payload
+    if contact_memory_context:
+        optional_context = "\n".join(
+            part for part in (payload.optional_context, contact_memory_context) if part
+        )
+        ai_payload = payload.model_copy(update={"optional_context": optional_context})
 
     classification = classify(payload)
     message_id = new_id("msg")
     decode_id = new_id("dec")
     raw_text = payload.message_text if payload.privacy_consent == "history" else None
     anonymized = anonymize_text(payload.message_text) if payload.privacy_consent in ("history", "anonymized") else None
-    output = safety_output() if classification.safety_label == "high_risk" else await free_decode(ai_payload, classification)
+    output = safety_output() if classification.safety_label == "high_risk" else await free_decode(
+        ai_payload,
+        classification,
+        message_focus=message_focus,
+        contact_memory_context=contact_memory_context,
+    )
+    resolved_contact_id = contact_memory.id if contact_memory else None
 
     if not payload.ghost_mode:
         with db() as conn:
@@ -66,8 +87,8 @@ async def create_free_decode(
                 """
                 INSERT INTO messages (
                     id, user_id, raw_text, anonymized_text, relationship_type, user_goal,
-                    optional_context, privacy_consent, safety_label, created_at, contact_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    optional_context, privacy_consent, safety_label, created_at, contact_id, message_focus
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -80,7 +101,8 @@ async def create_free_decode(
                     payload.privacy_consent,
                     classification.safety_label,
                     now_iso(),
-                    payload.contact_id,
+                    resolved_contact_id,
+                    message_focus,
                 ),
             )
             conn.execute(
@@ -107,11 +129,21 @@ async def create_free_decode(
                     now_iso(),
                 ),
             )
-            if payload.contact_id:
+            if resolved_contact_id and user_id:
                 conn.execute(
                     "UPDATE contacts SET interaction_count = interaction_count + 1 WHERE id = ? AND user_id = ?",
-                    (payload.contact_id, user_id)
+                    (resolved_contact_id, user_id)
                 )
+                if classification.safety_label != "high_risk" and hasattr(output, "recommended_direction"):
+                    contact_profile_summary = update_contact_memory(
+                        conn,
+                        contact_id=resolved_contact_id,
+                        user_id=user_id,
+                        payload=payload,
+                        classification=classification,
+                        free_output=output,  # type: ignore[arg-type]
+                        message_focus=message_focus,
+                    ) or contact_profile_summary
 
     if classification.safety_label == "high_risk":
         track("message_submitted", payload={"decode_id": decode_id, "relationship_type": payload.relationship_type})
@@ -120,6 +152,8 @@ async def create_free_decode(
             decode_id=decode_id,
             safety_label=classification.safety_label,
             safety_output=output,
+            contact_id=resolved_contact_id,
+            contact_profile_summary=contact_profile_summary,
             prompt_version=PROMPT_VERSION,
             model_version=current_model_version(),
         )
@@ -129,6 +163,8 @@ async def create_free_decode(
         decode_id=decode_id,
         safety_label=classification.safety_label,
         free_output=output,
+        contact_id=resolved_contact_id,
+        contact_profile_summary=contact_profile_summary,
         prompt_version=PROMPT_VERSION,
         model_version=current_model_version(),
     )
@@ -140,7 +176,17 @@ async def create_paid_decode(payload: PaidDecodeIn, user_id: str = Depends(get_c
     with db() as conn:
         decode = conn.execute(
             """
-            SELECT d.*, m.relationship_type, m.user_goal, m.contact_id, c.profile_summary AS contact_profile_summary
+            SELECT
+                d.*,
+                m.relationship_type,
+                m.user_goal,
+                m.contact_id,
+                m.raw_text,
+                m.anonymized_text,
+                m.optional_context,
+                m.message_focus,
+                c.profile_summary AS contact_profile_summary,
+                c.memory_summary AS contact_memory_summary
             FROM decodes d
             JOIN messages m ON m.id = d.message_id
             LEFT JOIN contacts c ON c.id = m.contact_id AND c.user_id = ?
@@ -163,12 +209,20 @@ async def create_paid_decode(payload: PaidDecodeIn, user_id: str = Depends(get_c
             if loads(decode["free_output"], {}).get("warning_title"):
                 raise HTTPException(status_code=400, detail="Safety decodes do not support paid replies")
             free_output = loads(decode["free_output"])
-            paid_model = await paid_decode(
-                free_decode_output_from_dict(free_output),
-                decode["relationship_type"],
-                decode["user_goal"],
-                decode["contact_profile_summary"],
-            )
+            try:
+                paid_model = await paid_decode(
+                    free_decode_output_from_dict(free_output),
+                    decode["relationship_type"],
+                    decode["user_goal"],
+                    decode["contact_memory_summary"] or decode["contact_profile_summary"],
+                    decode["raw_text"] or decode["anonymized_text"],
+                    decode["optional_context"],
+                )
+            except PaidDecodeUnavailable as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="هوش مصنوعی برای ساخت پاسخ کامل در دسترس نیست. اعتبار کم نشد؛ چند دقیقه دیگر دوباره تلاش کنید.",
+                ) from exc
             paid = paid_model.model_dump()
             conn.execute(
                 "UPDATE decodes SET paid_output = ?, paid_model_version = ?, paid_at = ? WHERE id = ?",
@@ -181,6 +235,41 @@ async def create_paid_decode(payload: PaidDecodeIn, user_id: str = Depends(get_c
     if generated_paid:
         track("paid_decode_generated", user_id=user_id, payload={"decode_id": payload.decode_id})
     return PaidDecodeResponse(decode_id=payload.decode_id, paid_output=paid, credit_balance=int(balance))
+
+
+@router.post("/decode/paid/ghost", response_model=PaidDecodeResponse)
+async def create_ghost_paid_decode(payload: GhostPaidDecodeIn, user_id: str = Depends(get_current_user_id)) -> PaidDecodeResponse:
+    if payload.free_output.privacy_warning and "ایمنی" in payload.free_output.privacy_warning:
+        raise HTTPException(status_code=400, detail="Safety decodes do not support paid replies")
+
+    with db() as conn:
+        user = conn.execute("SELECT credit_balance FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
+        if int(user["credit_balance"]) < 1:
+            raise HTTPException(status_code=402, detail="Insufficient credits")
+
+    try:
+        paid_model = await paid_decode(
+            payload.free_output,
+            payload.relationship_type,
+            payload.user_goal,
+            None,
+            payload.message_text,
+            payload.optional_context,
+        )
+    except PaidDecodeUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="هوش مصنوعی برای ساخت پاسخ کامل در دسترس نیست. اعتبار کم نشد؛ چند دقیقه دیگر دوباره تلاش کنید.",
+        ) from exc
+
+    with db() as conn:
+        conn.execute("UPDATE users SET credit_balance = credit_balance - 1 WHERE id = ?", (user_id,))
+        balance = conn.execute("SELECT credit_balance FROM users WHERE id = ?", (user_id,)).fetchone()["credit_balance"]
+
+    track("paid_decode_generated", user_id=user_id, payload={"decode_id": payload.decode_id, "ghost_mode": True})
+    return PaidDecodeResponse(decode_id=payload.decode_id, paid_output=paid_model.model_dump(), credit_balance=int(balance))
 
 
 

@@ -23,6 +23,7 @@ def get_contacts(user_id: str = Depends(get_current_user_id)) -> list[ContactOut
             relationship_type=row["relationship_type"],
             default_goal=row["default_goal"],
             profile_summary=row["profile_summary"],
+            memory_summary=row["memory_summary"],
             interaction_count=row["interaction_count"],
             created_at=row["created_at"],
         )
@@ -39,8 +40,8 @@ def create_contact(
     with db() as conn:
         conn.execute(
             """
-            INSERT INTO contacts (id, user_id, name, relationship_type, default_goal, profile_summary, interaction_count, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+            INSERT INTO contacts (id, user_id, name, relationship_type, default_goal, profile_summary, interaction_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
             """,
             (
                 contact_id,
@@ -50,6 +51,7 @@ def create_contact(
                 payload.default_goal,
                 payload.profile_summary,
                 created_at,
+                created_at,
             ),
         )
     return ContactOut(
@@ -58,6 +60,7 @@ def create_contact(
         relationship_type=payload.relationship_type,
         default_goal=payload.default_goal,
         profile_summary=payload.profile_summary,
+        memory_summary=None,
         interaction_count=0,
         created_at=created_at,
     )
@@ -71,7 +74,7 @@ def update_contact(
 ) -> ContactOut:
     with db() as conn:
         row = conn.execute(
-            "SELECT id, interaction_count, created_at FROM contacts WHERE id = ? AND user_id = ?",
+            "SELECT id, interaction_count, created_at, memory_summary FROM contacts WHERE id = ? AND user_id = ?",
             (contact_id, user_id),
         ).fetchone()
         if not row:
@@ -99,6 +102,7 @@ def update_contact(
         relationship_type=payload.relationship_type,
         default_goal=payload.default_goal,
         profile_summary=payload.profile_summary,
+        memory_summary=row["memory_summary"],
         interaction_count=row["interaction_count"],
         created_at=row["created_at"],
     )

@@ -1,16 +1,23 @@
 import os
 import json
+import hmac
+import hashlib
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_message_decoder.db"
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.database import db, init_db
 from app.main import app
-from app.config import get_settings
+from app.config import Settings, get_settings
+from app.services import auth as auth_service
+from app.services import telegram as telegram_service
 
 
 client = TestClient(app)
+_auth_counter = 0
 
 
 def setup_module():
@@ -22,8 +29,11 @@ def setup_module():
 
 
 def auth_headers():
-    client.post("/auth/request-otp", json={"phone": "09123456789"})
-    res = client.post("/auth/verify-otp", json={"phone": "09123456789", "code": "25367286503"})
+    global _auth_counter
+    _auth_counter += 1
+    phone = f"09123456{_auth_counter:03d}"
+    requested = client.post("/auth/request-otp", json={"phone": phone}).json()
+    res = client.post("/auth/verify-otp", json={"phone": phone, "code": requested["dev_otp_code"]})
     token = res.json()["token"]
     return {"Authorization": f"Bearer {token}"}
 
@@ -112,6 +122,53 @@ def test_paid_decode_for_ghost_decode_returns_not_found_before_credit_check():
     assert res.status_code == 404
 
 
+def test_ghost_paid_decode_consumes_credit_without_persisting_decode():
+    headers = auth_headers()
+    token = headers["Authorization"].removeprefix("Bearer ")
+    with db() as conn:
+        user = conn.execute("SELECT user_id FROM auth_sessions WHERE token = ?", (token,)).fetchone()
+        before_balance = conn.execute("SELECT credit_balance FROM users WHERE id = ?", (user["user_id"],)).fetchone()["credit_balance"]
+        before_messages = conn.execute("SELECT COUNT(*) AS c FROM messages").fetchone()["c"]
+        before_decodes = conn.execute("SELECT COUNT(*) AS c FROM decodes").fetchone()["c"]
+
+    ghost = client.post(
+        "/decode/free",
+        json={
+            "message_text": "باشه، هر جور راحتی. معلومه برات مهم نیست.",
+            "relationship_type": "romantic",
+            "user_goal": "avoid_needy",
+            "privacy_consent": "history",
+            "ghost_mode": True,
+        },
+        headers=headers,
+    )
+    assert ghost.status_code == 200
+    ghost_body = ghost.json()
+
+    paid = client.post(
+        "/decode/paid/ghost",
+        json={
+            "decode_id": ghost_body["decode_id"],
+            "free_output": ghost_body["free_output"],
+            "message_text": "باشه، هر جور راحتی. معلومه برات مهم نیست.",
+            "relationship_type": "romantic",
+            "user_goal": "avoid_needy",
+        },
+        headers=headers,
+    )
+    assert paid.status_code == 200
+    body = paid.json()
+    assert body["decode_id"] == ghost_body["decode_id"]
+    assert body["credit_balance"] == before_balance - 1
+    assert body["paid_output"]["reply_options"]
+
+    with db() as conn:
+        after_messages = conn.execute("SELECT COUNT(*) AS c FROM messages").fetchone()["c"]
+        after_decodes = conn.execute("SELECT COUNT(*) AS c FROM decodes").fetchone()["c"]
+    assert after_messages == before_messages
+    assert after_decodes == before_decodes
+
+
 def test_decode_with_contact_increments_interaction_count():
     headers = auth_headers()
     contact = client.post(
@@ -143,6 +200,33 @@ def test_decode_with_contact_increments_interaction_count():
     contacts = client.get("/contacts", headers=headers).json()
     saved = next(item for item in contacts if item["id"] == contact_id)
     assert saved["interaction_count"] == 1
+
+
+def test_decode_auto_creates_and_updates_contact_memory_from_named_context():
+    headers = auth_headers()
+    res = client.post(
+        "/decode/free",
+        json={
+            "message_text": "من اشتباه کردم داروخانه زدم",
+            "relationship_type": "friend",
+            "user_goal": "understand_only",
+            "privacy_consent": "history",
+            "optional_context": "امیرعلی این پیام را فرستاده و معمولاً روی تصمیم‌های کاری سخت‌گیر است.",
+        },
+        headers=headers,
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["contact_id"]
+    assert "داروخانه" in body["free_output"]["message_focus"]
+    assert "پرونده" in (body["free_output"]["personalization_note"] or "")
+
+    contacts = client.get("/contacts", headers=headers).json()
+    amirali = next(item for item in contacts if item["id"] == body["contact_id"])
+    assert amirali["name"] == "امیرعلی"
+    assert amirali["interaction_count"] == 1
+    assert "داروخانه" in (amirali["memory_summary"] or amirali["profile_summary"])
 
 
 def test_admin_decode_listing_is_anonymized_and_filterable():
@@ -344,14 +428,386 @@ def test_paid_decode_requires_credit():
     assert res.status_code == 402
 
 
-def test_successful_login_grants_credit_each_time():
+def test_successful_login_grants_signup_credit_only_once():
     phone = "09120000000"
-    client.post("/auth/request-otp", json={"phone": phone})
-    first = client.post("/auth/verify-otp", json={"phone": phone, "code": "25367286503"}).json()
-    client.post("/auth/request-otp", json={"phone": phone})
-    second = client.post("/auth/verify-otp", json={"phone": phone, "code": "25367286503"}).json()
+    first_otp = client.post("/auth/request-otp", json={"phone": phone}).json()["dev_otp_code"]
+    first = client.post("/auth/verify-otp", json={"phone": phone, "code": first_otp}).json()
+    second_otp = client.post("/auth/request-otp", json={"phone": phone}).json()["dev_otp_code"]
+    second = client.post("/auth/verify-otp", json={"phone": phone, "code": second_otp}).json()
     assert first["credit_balance"] >= 1
-    assert second["credit_balance"] == first["credit_balance"] + 1
+    assert second["credit_balance"] == first["credit_balance"]
+
+
+def test_otp_is_single_use():
+    phone = "09127770000"
+    code = client.post("/auth/request-otp", json={"phone": phone}).json()["dev_otp_code"]
+    assert client.post("/auth/verify-otp", json={"phone": phone, "code": code}).status_code == 200
+    assert client.post("/auth/verify-otp", json={"phone": phone, "code": code}).status_code == 401
+
+
+def test_otp_payload_is_created_for_linked_telegram_user(monkeypatch):
+    phone = "09123334444"
+    settings = Settings(
+        otp_provider="kavenegar",
+        kavenegar_api_key="test-key",
+        kavenegar_method="send",
+        kavenegar_sender="10001",
+        kavenegar_message_template="رمزگشایی از خطوط پنهان پیام.\n\nکلید ورود به دکودر: {code}",
+        telegram_bridge_secret="bridge-secret",
+    )
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "112233")
+    monkeypatch.setattr(auth_service, "send_kavenegar_otp", lambda *a, **kw: None)
+
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, phone, telegram_id, created_at, credit_balance, source_channel)
+            VALUES ('user_telegram_otp', ?, '778899', datetime('now'), 1, 'telegram')
+            """,
+            (phone,),
+        )
+
+    code, payload = auth_service.request_otp_code(phone, settings)
+
+    assert code is None  # non-mock providers do not expose the code
+    assert payload is not None
+    assert payload["chat_id"] == "778899"
+    assert payload["text"] == "رمزگشایی از خطوط پنهان پیام.\n\nکلید ورود به دکودر: 112233\n\nشماره درخواست‌کننده: 09123334444"
+    expected_signature = hmac.new(
+        b"bridge-secret",
+        f"{payload['chat_id']}|{payload['text']}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    assert payload["signature"] == expected_signature
+
+
+def test_otp_payload_matches_telegram_country_code_phone(monkeypatch):
+    settings = Settings(
+        otp_provider="kavenegar",
+        kavenegar_api_key="test-key",
+        kavenegar_method="send",
+        kavenegar_sender="10001",
+        telegram_bridge_secret="bridge-secret",
+    )
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "112244")
+    monkeypatch.setattr(auth_service, "send_kavenegar_otp", lambda *a, **kw: None)
+
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, phone, telegram_id, created_at, credit_balance, source_channel)
+            VALUES ('user_telegram_country_phone', '09123335555', '778811', datetime('now'), 1, 'telegram')
+            """
+        )
+
+    code, payload = auth_service.request_otp_code("+989123335555", settings)
+
+    assert code is None
+    assert payload is not None
+    assert payload["chat_id"] == "778811"
+
+
+def test_smsir_otp_payload_uses_smsir_message_template_for_linked_telegram_user(monkeypatch):
+    phone = "09124446666"
+    settings = Settings(
+        otp_provider="smsir",
+        smsir_api_key="test-smsir-key",
+        smsir_method="bulk",
+        smsir_line_number="300089931441",
+        smsir_message_template="کد ورود دکودر: {code}",
+        telegram_bridge_secret="bridge-secret",
+    )
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"status": 1, "message": "ok", "data": {"messageIds": [123]}}
+
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, phone, telegram_id, created_at, credit_balance, source_channel)
+            VALUES ('user_smsir_telegram_otp', ?, '778822', datetime('now'), 1, 'telegram')
+            """,
+            (phone,),
+        )
+
+    def fake_post(url, json, headers, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "932841")
+    monkeypatch.setattr(auth_service.httpx, "post", fake_post)
+
+    dev_code, payload = auth_service.request_otp_code(phone, settings)
+
+    assert dev_code is None
+    assert payload is not None
+    assert payload["chat_id"] == "778822"
+    assert payload["text"] == "کد ورود دکودر: 932841\n\nشماره درخواست‌کننده: 09124446666"
+
+
+def test_otp_payload_is_absent_without_bridge_secret():
+    phone = "09123334445"
+    settings = Settings(otp_provider="mock", dev_otp_code="445566")
+
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, phone, telegram_id, created_at, credit_balance, source_channel)
+            VALUES ('user_telegram_relay_otp', ?, '778800', datetime('now'), 1, 'telegram')
+            """,
+            (phone,),
+        )
+
+    code, payload = auth_service.request_otp_code(phone, settings)
+
+    assert code == "445566"
+    assert payload is None
+
+
+def test_magic_otp_code_does_not_bypass_stored_code():
+    phone = "09124444444"
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_otps (phone, code, created_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(phone) DO UPDATE SET code = excluded.code, created_at = excluded.created_at
+            """,
+            (phone, "111111"),
+        )
+    res = client.post("/auth/verify-otp", json={"phone": phone, "code": "25367286503"})
+    assert res.status_code == 401
+
+
+def test_kavenegar_provider_sends_lookup_and_stores_generated_code(monkeypatch):
+    phone = "۰۹۱۲۳۴۵۶۷۸۹"
+    settings = Settings(
+        otp_provider="kavenegar",
+        kavenegar_method="verify_lookup",
+        kavenegar_api_key="test-key",
+        kavenegar_template="message-decoder-login",
+    )
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"return": {"status": 200, "message": "ok"}}
+
+    def fake_post(url, data, timeout):
+        captured["url"] = url
+        captured["data"] = data
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "738291")
+    monkeypatch.setattr(auth_service.httpx, "post", fake_post)
+
+    dev_code, telegram_payload = auth_service.request_otp_code(phone, settings)
+
+    assert dev_code is None
+    assert telegram_payload is None
+    assert captured["url"] == "https://api.kavenegar.com/v1/test-key/verify/lookup.json"
+    assert captured["data"] == {
+        "receptor": "09123456789",
+        "token": "738291",
+        "template": "message-decoder-login",
+        "type": "sms",
+    }
+    with db() as conn:
+        otp = conn.execute("SELECT code FROM auth_otps WHERE phone = ?", ("09123456789",)).fetchone()
+    assert otp["code"] == "738291"
+
+
+def test_kavenegar_provider_can_send_plain_sms_otp(monkeypatch):
+    phone = "۰۹۱۲۳۴۵۶۷۸۹"
+    settings = Settings(
+        otp_provider="kavenegar",
+        kavenegar_method="send",
+        kavenegar_api_key="test-key",
+        kavenegar_sender="2000660110",
+        kavenegar_message_template="رمزگشایی از خطوط پنهان پیام.\n\nکلید ورود به دکودر: {code}",
+    )
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"return": {"status": 200, "message": "ok"}}
+
+    def fake_post(url, data, timeout):
+        captured["url"] = url
+        captured["data"] = data
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "654321")
+    monkeypatch.setattr(auth_service.httpx, "post", fake_post)
+
+    dev_code, telegram_payload = auth_service.request_otp_code(phone, settings)
+
+    assert dev_code is None
+    assert telegram_payload is None
+    assert captured["url"] == "https://api.kavenegar.com/v1/test-key/sms/send.json"
+    assert captured["data"] == {
+        "receptor": "09123456789",
+        "sender": "2000660110",
+        "message": "رمزگشایی از خطوط پنهان پیام.\n\nکلید ورود به دکودر: 654321",
+    }
+    with db() as conn:
+        otp = conn.execute("SELECT code FROM auth_otps WHERE phone = ?", ("09123456789",)).fetchone()
+    assert otp["code"] == "654321"
+
+
+def test_smsir_provider_sends_verify_template_and_logs_success(monkeypatch):
+    phone = "۰۹۱۲۳۴۵۶۷۸۹"
+    settings = Settings(
+        otp_provider="smsir",
+        smsir_api_key="test-smsir-key",
+        smsir_template_id="678614",
+        smsir_parameter_name="Code",
+    )
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"status": 1, "message": "ok", "data": {"messageId": 98765}}
+
+    def fake_post(url, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "738291")
+    monkeypatch.setattr(auth_service.httpx, "post", fake_post)
+
+    dev_code, telegram_payload = auth_service.request_otp_code(phone, settings)
+
+    assert dev_code is None
+    assert telegram_payload is None
+    assert captured["url"] == "https://api.sms.ir/v1/send/verify"
+    assert captured["json"] == {
+        "mobile": "09123456789",
+        "templateId": 678614,
+        "parameters": [{"name": "Code", "value": "738291"}],
+    }
+    assert captured["headers"]["x-api-key"] == "test-smsir-key"
+    with db() as conn:
+        otp = conn.execute("SELECT code FROM auth_otps WHERE phone = ?", ("09123456789",)).fetchone()
+        log = conn.execute(
+            "SELECT provider, purpose, phone, template_id, message_id, status FROM sms_send_logs ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    assert otp["code"] == "738291"
+    assert dict(log) == {
+        "provider": "smsir",
+        "purpose": "otp",
+        "phone": "09123456789",
+        "template_id": "678614",
+        "message_id": "98765",
+        "status": "sent",
+    }
+
+
+def test_smsir_provider_logs_rejected_send_without_storing_otp(monkeypatch):
+    phone = "09129999999"
+    settings = Settings(
+        otp_provider="smsir",
+        smsir_api_key="test-smsir-key",
+        smsir_template_id="678614",
+    )
+
+    class FakeResponse:
+        status_code = 400
+
+        def json(self):
+            return {"status": 0, "message": "template not found"}
+
+    def fake_post(url, json, headers, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "829173")
+    monkeypatch.setattr(auth_service.httpx, "post", fake_post)
+
+    with pytest.raises(HTTPException) as exc:
+        auth_service.request_otp_code(phone, settings)
+    assert exc.value.status_code == 502
+    # User-facing detail is now a clean Persian message; raw provider message is kept in the log.
+    assert "ارسال پیامک" in exc.value.detail
+    with db() as conn:
+        otp = conn.execute("SELECT code FROM auth_otps WHERE phone = ?", (phone,)).fetchone()
+        log = conn.execute(
+            "SELECT status, error_message FROM sms_send_logs WHERE phone = ? ORDER BY created_at DESC LIMIT 1",
+            (phone,),
+        ).fetchone()
+    assert otp is None
+    assert log["status"] == "failed"
+    assert log["error_message"] == "template not found"
+
+
+def test_smsir_provider_can_send_bulk_otp_without_template_and_logs_success(monkeypatch):
+    phone = "۰۹۱۲۳۴۵۶۷۸۹"
+    settings = Settings(
+        otp_provider="smsir",
+        smsir_method="bulk",
+        smsir_api_key="test-smsir-key",
+        smsir_line_number="300089931441",
+        smsir_message_template="رمزگشایی از خطوط پنهان پیام.\n\nکلید ورود به دکودر: {code}",
+    )
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"status": 1, "message": "ok", "data": {"packId": "pack_1", "messageIds": [414521489], "cost": 1}}
+
+    def fake_post(url, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(auth_service, "generate_otp_code", lambda: "482913")
+    monkeypatch.setattr(auth_service.httpx, "post", fake_post)
+
+    dev_code, telegram_payload = auth_service.request_otp_code(phone, settings)
+
+    assert dev_code is None
+    assert telegram_payload is None
+    assert captured["url"] == "https://api.sms.ir/v1/send/bulk"
+    assert captured["json"] == {
+        "lineNumber": 300089931441,
+        "messageText": "رمزگشایی از خطوط پنهان پیام.\n\nکلید ورود به دکودر: 482913",
+        "mobiles": ["09123456789"],
+        "sendDateTime": None,
+    }
+    assert captured["headers"]["x-api-key"] == "test-smsir-key"
+    with db() as conn:
+        otp = conn.execute("SELECT code FROM auth_otps WHERE phone = ?", ("09123456789",)).fetchone()
+        log = conn.execute(
+            "SELECT provider, purpose, phone, message_id, status FROM sms_send_logs ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    assert otp["code"] == "482913"
+    assert dict(log) == {
+        "provider": "smsir",
+        "purpose": "otp",
+        "phone": "09123456789",
+        "message_id": "414521489",
+        "status": "sent",
+    }
 
 
 def test_payment_verify_adds_credits_and_paid_consumes_one():
@@ -377,6 +833,48 @@ def test_payment_verify_adds_credits_and_paid_consumes_one():
     assert paid.json()["credit_balance"] >= 4
 
 
+def test_production_paid_decode_does_not_charge_without_ai(monkeypatch):
+    headers = auth_headers()
+    free = client.post(
+        "/decode/free",
+        json={
+            "message_text": "باشه، هر جور راحتی. معلومه برات مهم نیست.",
+            "relationship_type": "romantic",
+            "user_goal": "avoid_needy",
+            "privacy_consent": "none",
+        },
+    ).json()
+    before = client.get("/user/credits", headers=headers).json()["credit_balance"]
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    get_settings.cache_clear()
+    try:
+        paid = client.post("/decode/paid", json={"decode_id": free["decode_id"]}, headers=headers)
+        after = client.get("/user/credits", headers=headers).json()["credit_balance"]
+    finally:
+        get_settings.cache_clear()
+
+    assert paid.status_code == 503
+    assert after == before
+
+
+def test_production_startup_rejects_default_secrets(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("ADMIN_PHONE", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    try:
+        Settings().validate_for_startup()
+        assert False, "production startup should reject default or missing secrets"
+    except RuntimeError as exc:
+        message = str(exc)
+    assert "JWT_SECRET" in message
+    assert "ADMIN_TOKEN" in message
+    assert "ADMIN_PHONE" in message
+    assert "ADMIN_PASSWORD" in message
+
+
 def test_failed_payment_does_not_add_credits():
     headers = auth_headers()
     before = client.get("/user/credits", headers=headers).json()["credit_balance"]
@@ -384,6 +882,135 @@ def test_failed_payment_does_not_add_credits():
     client.post("/payment/verify", json={"payment_id": payment["payment_id"], "status": "failed"}, headers=headers)
     after = client.get("/user/credits", headers=headers).json()["credit_balance"]
     assert after == before
+
+
+def test_telegram_onboarding_contact_and_free_decode(monkeypatch):
+    sent = []
+
+    async def fake_send(chat_id, text, reply_markup=None):
+        sent.append({"chat_id": str(chat_id), "text": text, "reply_markup": reply_markup})
+
+    monkeypatch.setattr(telegram_service, "send_telegram_message", fake_send)
+
+    start = client.post(
+        "/telegram/webhook",
+        json={
+            "message": {
+                "chat": {"id": 1001},
+                "from": {"id": 501},
+                "text": "/start",
+            }
+        },
+    )
+    assert start.status_code == 200
+    assert sent[-1]["reply_markup"]["keyboard"][0][0]["request_contact"] is True
+
+    contact = client.post(
+        "/telegram/webhook",
+        json={
+            "message": {
+                "chat": {"id": 1001},
+                "from": {"id": 501},
+                "contact": {"user_id": 501, "phone_number": "09125550101"},
+            }
+        },
+    )
+    assert contact.status_code == 200
+
+    message = client.post(
+        "/telegram/webhook",
+        json={
+            "message": {
+                "chat": {"id": 1001},
+                "from": {"id": 501},
+                "text": "باشه، هر جور راحتی. معلومه برات مهم نیست.",
+            }
+        },
+    )
+    assert message.status_code == 200
+    assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].startswith("rel:")
+
+    client.post(
+        "/telegram/webhook",
+        json={
+            "callback_query": {
+                "from": {"id": 501},
+                "message": {"chat": {"id": 1001}},
+                "data": "rel:romantic",
+            }
+        },
+    )
+    assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].startswith("goal:")
+
+    free = client.post(
+        "/telegram/webhook",
+        json={
+            "callback_query": {
+                "from": {"id": 501},
+                "message": {"chat": {"id": 1001}},
+                "data": "goal:avoid_needy",
+            }
+        },
+    )
+    assert free.status_code == 200
+    assert "تحلیل سریع" in sent[-1]["text"]
+    assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].startswith("paid:")
+
+
+def test_telegram_ghost_free_decode_has_no_paid_button(monkeypatch):
+    sent = []
+
+    async def fake_send(chat_id, text, reply_markup=None):
+        sent.append({"chat_id": str(chat_id), "text": text, "reply_markup": reply_markup})
+
+    monkeypatch.setattr(telegram_service, "send_telegram_message", fake_send)
+    client.post(
+        "/telegram/webhook",
+        json={
+            "message": {
+                "chat": {"id": 1002},
+                "from": {"id": 502},
+                "contact": {"user_id": 502, "phone_number": "09125550102"},
+            }
+        },
+    )
+    client.post(
+        "/telegram/webhook",
+        json={"message": {"chat": {"id": 1002}, "from": {"id": 502}, "text": "/ghost"}},
+    )
+    client.post(
+        "/telegram/webhook",
+        json={
+            "message": {
+                "chat": {"id": 1002},
+                "from": {"id": 502},
+                "text": "باشه، هر جور راحتی. معلومه برات مهم نیست.",
+            }
+        },
+    )
+    client.post(
+        "/telegram/webhook",
+        json={
+            "callback_query": {
+                "from": {"id": 502},
+                "message": {"chat": {"id": 1002}},
+                "data": "rel:romantic",
+            }
+        },
+    )
+    res = client.post(
+        "/telegram/webhook",
+        json={
+            "callback_query": {
+                "from": {"id": 502},
+                "message": {"chat": {"id": 1002}},
+                "data": "goal:avoid_needy",
+            }
+        },
+    )
+    assert res.status_code == 200
+    assert "Ghost Mode" in sent[-1]["text"]
+    assert sent[-1]["reply_markup"] is None
 
 
 def test_production_zarinpal_create_and_verify_shape(monkeypatch):

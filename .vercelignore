@@ -1,0 +1,12 @@
+.git
+.gstack
+.DS_Store
+node_modules
+apps/web/node_modules
+apps/web/.next
+apps/web/out
+apps/api
+backup_v2_draft
+tokenjuice
+*.db
+test_*.db

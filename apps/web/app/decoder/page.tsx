@@ -36,7 +36,7 @@ import {
   Zap
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Contact, DecodeHistoryItem, RelationshipThermometer } from "../../lib/api";
 import {
   copyEvent,
@@ -48,16 +48,20 @@ import {
   freeDecode,
   FreeDecodeResponse,
   getContacts,
+  getCredits,
   getDecodeHistory,
+  getReferral,
   getRelationshipThermometer,
   paidDecode,
+  paidDecodeGhost,
   PaidDecodeResponse,
+  notifyTelegramOtp,
   requestOtp,
   sendFeedback,
   sendSelectedReplyFeedback,
   updateContact,
   verifyPayment,
-  verifyOtp
+  verifyOtpWithReferral
 } from "../../lib/api";
 
 const relationshipOptions = [
@@ -122,6 +126,7 @@ export default function DecoderPage() {
   const [freeResult, setFreeResult] = useState<FreeDecodeResponse | null>(null);
   const [freeResultGhost, setFreeResultGhost] = useState(false);
   const [paidResult, setPaidResult] = useState<PaidDecodeResponse | null>(null);
+  const [showAdvancedInputs, setShowAdvancedInputs] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [historyItems, setHistoryItems] = useState<DecodeHistoryItem[]>([]);
   const [selectedContactId, setSelectedContactId] = useState("");
@@ -133,12 +138,38 @@ export default function DecoderPage() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+  const [myReferral, setMyReferral] = useState<{ referral_code: string; referral_url: string; reward_credits: number } | null>(null);
   const [token, setToken] = useState("");
   const [credits, setCredits] = useState(0);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
+
+  useEffect(() => {
+    const savedToken = window.localStorage.getItem("message-decoder-token") || "";
+    const savedPhone = window.localStorage.getItem("message-decoder-phone") || "";
+    if (!savedToken) return;
+    setToken(savedToken);
+    setPhone(savedPhone);
+    void hydrateAccount(savedToken);
+  }, []);
+
+  async function hydrateAccount(authToken: string) {
+    try {
+      const [creditResult, referralResult] = await Promise.all([
+        getCredits(authToken),
+        getReferral(authToken)
+      ]);
+      setCredits(creditResult.credit_balance);
+      setMyReferral(referralResult);
+      await Promise.all([refreshContacts(authToken), refreshHistory(authToken)]);
+    } catch (err) {
+      window.localStorage.removeItem("message-decoder-token");
+      setToken("");
+    }
+  }
 
   async function handleFreeDecode() {
     if (!message.trim()) return;
@@ -154,13 +185,20 @@ export default function DecoderPage() {
         optional_context: context || undefined,
         privacy_consent: ghostMode ? "none" : consent,
         contact_id: selectedContactId || undefined,
+        contact_name: !selectedContactId && contactName.trim() ? contactName.trim() : undefined,
         ghost_mode: ghostMode
       }, token || undefined);
       setFreeResult(result);
       setFreeResultGhost(ghostMode);
+      if (result.contact_id) {
+        setSelectedContactId(result.contact_id);
+      }
       if (token && selectedContactId && !ghostMode) {
         await refreshContacts(token);
         await refreshRelationshipThermometer(selectedContactId, token);
+      } else if (token && result.contact_id && !ghostMode) {
+        await refreshContacts(token);
+        await refreshRelationshipThermometer(result.contact_id, token);
       }
       if (token && consent === "history" && !ghostMode) {
         await refreshHistory(token);
@@ -176,15 +214,16 @@ export default function DecoderPage() {
 
   async function handleOtp() {
     if (!phone.trim()) {
-      setError("برای ساخت پاسخ‌های کامل، شماره موبایل را وارد کنید.");
+      setError("برای ساخت پاسخ‌های کامل، شماره موبایل را وارد کنید. اگر همین شماره در تلگرام وصل باشد، کد ورود را آنجا هم می‌گیرید.");
       return;
     }
     setError("");
     setStatus("داریم کد ورود را می‌فرستیم...");
     try {
       const result = await requestOtp(phone);
+      await notifyTelegramOtp(result.telegram_payload);
       setOtpSent(true);
-      setStatus(result.dev_otp_code ? `کد تست شما: ${result.dev_otp_code}` : "کد ورود ارسال شد.");
+      setStatus("کد ورود ارسال شد. اگر همین شماره در تلگرام وصل باشد، کد داخل تلگرام هم ارسال می‌شود.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "کد ورود ارسال نشد. دوباره تلاش کنید.");
       setStatus("");
@@ -199,12 +238,14 @@ export default function DecoderPage() {
     setError("");
     setStatus("داریم کد را بررسی می‌کنیم...");
     try {
-      const result = await verifyOtp(phone, otp);
+      const result = await verifyOtpWithReferral(phone, otp, referralCode || undefined);
       setToken(result.token);
       setCredits(result.credit_balance);
       window.localStorage.setItem("message-decoder-token", result.token);
+      window.localStorage.setItem("message-decoder-phone", phone);
       await Promise.all([refreshContacts(result.token), refreshHistory(result.token)]);
-      setStatus("اعتبار تستی فعال شد؛ حالا می‌توانید پاسخ کامل و قابل کپی بسازید.");
+      setMyReferral(await getReferral(result.token));
+      setStatus("حساب فعال شد؛ حالا می‌توانید پاسخ کامل و قابل کپی بسازید.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "این کد درست نیست یا منقضی شده است.");
       setStatus("");
@@ -217,7 +258,7 @@ export default function DecoderPage() {
       return;
     }
     setError("");
-    setStatus("داریم اعتبار تستی را فعال می‌کنیم...");
+    setStatus("داریم اعتبار را فعال می‌کنیم...");
     try {
       const payment = await createPayment(token, "credits_5");
       window.localStorage.setItem("message-decoder-token", token);
@@ -229,17 +270,17 @@ export default function DecoderPage() {
       const verified = await verifyPayment(token, payment.payment_id);
       window.localStorage.removeItem("message-decoder-pending-payment");
       setCredits(verified.credit_balance);
-      setStatus("۵ اعتبار تستی اضافه شد؛ می‌توانید چند پاسخ کامل دیگر هم بسازید.");
+      setStatus("۵ اعتبار اضافه شد؛ می‌توانید چند پاسخ کامل دیگر هم بسازید.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "اعتبار تستی فعال نشد. دوباره تلاش کنید.");
+      setError(err instanceof Error ? err.message : "اعتبار فعال نشد. دوباره تلاش کنید.");
       setStatus("");
     }
   }
 
   async function handlePaidDecode() {
-    if (!freeResult) return;
-    if (freeResultGhost) {
-      setError("این تحلیل در حالت شبح ذخیره نشده، بنابراین برای پاسخ کامل باید حالت شبح را خاموش کنید و دوباره تحلیل بگیرید.");
+    if (!freeResult?.free_output) return;
+    if (freeResultGhost && !token) {
+      setError("برای ساخت پاسخ‌های کامل در حالت شبح هم اول شماره موبایل را تایید کنید. متن پیام ذخیره نمی‌شود.");
       return;
     }
     if (!token) {
@@ -250,10 +291,22 @@ export default function DecoderPage() {
     setLoading(true);
     setStatus("داریم پاسخ‌هایی می‌سازیم که هم روشن باشند، هم تنش را بی‌دلیل بالا نبرند...");
     try {
-      const result = await paidDecode(token, freeResult.decode_id);
+      const result = freeResultGhost
+        ? await paidDecodeGhost(token, {
+            decode_id: freeResult.decode_id,
+            free_output: freeResult.free_output,
+            message_text: message,
+            relationship_type: relationship as never,
+            user_goal: goal as never,
+            optional_context: context.trim() || undefined
+          })
+        : await paidDecode(token, freeResult.decode_id);
       setPaidResult(result);
       setCredits(result.credit_balance);
-      setStatus("پاسخ‌ها آماده‌اند؛ یکی را انتخاب کنید، اگر لازم بود ویرایش کنید و بعد بفرستید.");
+      setStatus(freeResultGhost
+        ? "پاسخ‌ها آماده‌اند و تحلیل شبح در تاریخچه ذخیره نشد."
+        : "پاسخ‌ها آماده‌اند؛ یکی را انتخاب کنید، اگر لازم بود ویرایش کنید و بعد بفرستید."
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "پاسخ کامل ساخته نشد. دوباره تلاش کنید.");
       setStatus("");
@@ -266,7 +319,7 @@ export default function DecoderPage() {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedIndex(label);
-      if (freeResult) {
+      if (freeResult && !freeResultGhost) {
         await copyEvent(freeResult.decode_id, label, label);
       }
       setTimeout(() => setCopiedIndex(null), 2000);
@@ -505,7 +558,7 @@ export default function DecoderPage() {
             ) : (
               <div className="credit-badge">
                 <Zap size={14} />
-                <span>تحلیل اول رایگان</span>
+                <span>وب و تلگرام فعال</span>
               </div>
             )}
             <Link className="nav-login" href="/">
@@ -520,7 +573,7 @@ export default function DecoderPage() {
           <div className="section-heading">
             <span>تحلیل اول بدون ورود</span>
             <h1>پیام را اینجا بگذارید؛ قبل از جواب دادن ریسک را ببینید</h1>
-            <p>اول برداشت محتمل و مسیر پاسخ کم‌تنش‌تر را رایگان می‌بینید. اگر خواستید پاسخ‌های کامل و قابل کپی بسازید، همان‌جا با شماره موبایل اعتبار تستی می‌گیرید.</p>
+            <p>پیام را وارد کنید تا برداشت محتمل، ریسک جواب عجولانه و مسیر پاسخ کم‌تنش‌تر را ببینید. تنظیمات بیشتر بعد از تحلیل در دسترس‌اند.</p>
           </div>
 
           <div className="workspace-grid">
@@ -536,7 +589,7 @@ export default function DecoderPage() {
               <div className="playbook-strip">
                 <div className="field-label">
                   <BookOpenCheck size={16} />
-                  <span>Playbook Hub</span>
+                  <span>نمونه پیام‌های آماده</span>
                 </div>
                 <div className="playbook-actions">
                   {playbookTemplates.map((template) => (
@@ -589,18 +642,58 @@ export default function DecoderPage() {
                 </div>
               </div>
 
-              <div className="field-group">
-                <label className="field-label">
-                  <Fingerprint size={16} />
-                  <span>زمینه کوتاه، اگر کمک می‌کند</span>
-                </label>
-                <input
-                  value={context}
-                  onChange={(event) => setContext(event.target.value)}
-                  placeholder="مثلاً: بعد از اینکه دیر جواب دادم این پیام را فرستاد..."
-                />
-              </div>
+              <button
+                className="mini-action advanced-toggle"
+                type="button"
+                onClick={() => setShowAdvancedInputs((value) => !value)}
+              >
+                {showAdvancedInputs ? "بستن گزینه‌های بیشتر" : "زمینه یا حریم خصوصی را تنظیم کنم"}
+              </button>
 
+              {showAdvancedInputs && (
+                <div className="advanced-inputs">
+                  <div className="field-group">
+                    <label className="field-label">
+                      <Fingerprint size={16} />
+                      <span>زمینه کوتاه، اگر کمک می‌کند</span>
+                    </label>
+                    <input
+                      value={context}
+                      onChange={(event) => setContext(event.target.value)}
+                      placeholder="مثلاً: بعد از اینکه دیر جواب دادم این پیام را فرستاد..."
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label">
+                      <EyeOff size={16} />
+                      <span>حریم خصوصی</span>
+                    </label>
+                    <select value={consent} onChange={(event) => setConsent(event.target.value as never)}>
+                      <option value="none">پیام را ذخیره نکن.</option>
+                      <option value="history">در تاریخچه حساب من نگه دار.</option>
+                      <option value="anonymized">بدون نام برای بهتر شدن تحلیل‌ها استفاده کن.</option>
+                    </select>
+                  </div>
+
+                  <label className={`ghost-toggle ${ghostMode ? "active" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={ghostMode}
+                      onChange={(event) => setGhostMode(event.target.checked)}
+                    />
+                    <span className="ghost-toggle-icon">
+                      <ShieldCheck size={18} />
+                    </span>
+                    <span>
+                      <strong>حالت شبح</strong>
+                      <small>تحلیل و پاسخ کامل در تاریخچه ذخیره نمی‌شود. فقط برای ساخت پاسخ، همین صفحه از متن استفاده می‌کند.</small>
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {token && freeResult && (
               <div className="contact-memory-card">
                 <div className="contact-memory-header">
                   <div className="field-label">
@@ -621,8 +714,8 @@ export default function DecoderPage() {
                 ) : (
                   <>
                     {contacts.length === 0 && !contactsLoading && (
-                      <div className="contact-empty-note">
-                        هنوز مخاطبی ندارید. یک نام کوتاه ثبت کنید تا تحلیل‌های بعدی همین رابطه دقیق‌تر شوند.
+                    <div className="contact-empty-note">
+                        هنوز مخاطبی ندارید. یک نام کوتاه ثبت کنید تا تحلیل‌های بعدی همین رابطه دقیق‌تر شوند و دماسنج رابطه روند گرمی، تنش و دفاعی‌تر شدن گفتگو را از روی تحلیل‌های ذخیره‌شده همین مخاطب نشان دهد.
                       </div>
                     )}
                     <select value={selectedContactId} onChange={(event) => handleSelectContact(event.target.value)}>
@@ -636,7 +729,7 @@ export default function DecoderPage() {
                     {selectedContactId && (
                       <div className="selected-contact-note">
                         <strong>{selectedContact?.name}</strong>
-                        <span>{selectedContact?.profile_summary || "برای این مخاطب هنوز خلاصه رفتاری ثبت نشده است."}</span>
+                        <span>{selectedContact?.memory_summary || selectedContact?.profile_summary || "برای این مخاطب هنوز خلاصه رفتاری ثبت نشده است."}</span>
                       </div>
                     )}
                     {selectedContactId && relationshipThermometer && (
@@ -682,8 +775,9 @@ export default function DecoderPage() {
                   </>
                 )}
               </div>
+              )}
 
-              {token && (
+              {token && freeResult && (
                 <div className="history-memory-card">
                   <div className="contact-memory-header">
                     <div className="field-label">
@@ -742,33 +836,6 @@ export default function DecoderPage() {
                 </div>
               )}
 
-              <div className="field-group">
-                <label className="field-label">
-                  <EyeOff size={16} />
-                  <span>حریم خصوصی</span>
-                </label>
-                <select value={consent} onChange={(event) => setConsent(event.target.value as never)}>
-                  <option value="none">پیام را ذخیره نکن.</option>
-                  <option value="history">فقط در تاریخچه حساب من نگه دار.</option>
-                  <option value="anonymized">بدون نام برای بهتر شدن تحلیل‌ها استفاده کن.</option>
-                </select>
-              </div>
-
-              <label className={`ghost-toggle ${ghostMode ? "active" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={ghostMode}
-                  onChange={(event) => setGhostMode(event.target.checked)}
-                />
-                <span className="ghost-toggle-icon">
-                  <ShieldCheck size={18} />
-                </span>
-                <span>
-                  <strong>حالت شبح</strong>
-                  <small>تحلیل ذخیره نمی‌شود و پاسخ پولی برای همین تحلیل فعال نیست.</small>
-                </span>
-              </label>
-
               <button className="btn-primary btn-wide" onClick={handleFreeDecode} disabled={!message.trim() || loading}>
                 {loading ? <RefreshCw className="animate-spin" size={18} /> : <Sparkles size={18} />}
                 <span>برداشت پیام را رایگان ببینم</span>
@@ -822,7 +889,7 @@ export default function DecoderPage() {
                           <h3>
                             <ShieldCheck size={14} /> این تحلیل در حالت شبح بود
                           </h3>
-                          <p>متن و خروجی در جدول پیام‌ها یا تحلیل‌ها ذخیره نشده است. برای ساخت پاسخ کامل، حالت شبح را خاموش کنید و دوباره تحلیل بگیرید.</p>
+                          <p>متن و خروجی در تاریخچه ذخیره نشده است. اگر پاسخ کامل بسازید، همان پاسخ هم ذخیره نمی‌شود و فقط ۱ اعتبار مصرف می‌شود.</p>
                         </div>
                       )}
 
@@ -835,7 +902,13 @@ export default function DecoderPage() {
                         <span className="confidence-badge">میزان اطمینان: {freeResult.free_output.confidence}</span>
                         </div>
                         <h3>برداشت محتمل اصلی</h3>
+                        {freeResult.free_output.message_focus && (
+                          <div className="reply-badge">{freeResult.free_output.message_focus}</div>
+                        )}
                         <p>{freeResult.free_output.dominant_lens_explanation}</p>
+                        {freeResult.free_output.personalization_note && (
+                          <p>{freeResult.free_output.personalization_note}</p>
+                        )}
                       </div>
 
                       <div className="result-card">
@@ -895,7 +968,7 @@ export default function DecoderPage() {
                         </div>
                       )}
 
-                      {!paidResult && !freeResultGhost && (
+                      {!paidResult && (
                         <div className="premium-lock-card">
                           <div className="premium-lock-header">
                             <div className="premium-lock-icon">
@@ -904,7 +977,10 @@ export default function DecoderPage() {
                             <div className="premium-lock-details">
                               <span>قدم بعدی، اختیاری</span>
                               <h3>پاسخ قابل کپی بسازید: نرم، قاطع، کوتاه</h3>
-                              <p>اگر نمی‌دانید دقیقاً چه بفرستید، برای همین موقعیت چند جواب آماده بسازید و قبل از ارسال ویرایششان کنید.</p>
+                              <p>{freeResultGhost
+                                ? "تحلیل اولیه رایگان است. پاسخ‌های آماده در حالت شبح ذخیره نمی‌شوند و ۱ اعتبار مصرف می‌کنند."
+                                : "تحلیل اولیه رایگان است. ساخت پاسخ‌های آماده برای همین پیام ۱ اعتبار مصرف می‌کند."
+                              }</p>
                             </div>
                           </div>
 
@@ -912,7 +988,7 @@ export default function DecoderPage() {
                             <div className="auth-grid">
                               <div className="auth-title">
                                 <LockKeyhole size={16} />
-                                <span>برای پاسخ کامل، اعتبار تستی بگیرید</span>
+                                <span>شماره را وارد کنید تا ۵ اعتبار هدیه فعال شود</span>
                               </div>
                               <div className="auth-row">
                                 <input
@@ -935,21 +1011,37 @@ export default function DecoderPage() {
                                     onChange={(event) => setOtp(event.target.value)}
                                   />
                                   <button className="btn-primary btn-compact" onClick={handleVerify}>
-                                    فعال‌سازی اعتبار
+                                    ورود و فعال‌سازی اعتبار
                                   </button>
                                 </div>
                               )}
-                              <span className="field-hint">کد تست: 25367286503</span>
+                              <div className="auth-row">
+                                <input
+                                  type="text"
+                                  placeholder="کد معرفی دارید؟ اختیاری"
+                                  value={referralCode}
+                                  onChange={(event) => setReferralCode(event.target.value.toUpperCase())}
+                                />
+                              </div>
+                              <Link className="auth-free-link" href="/signup">
+                                <UserPlus size={15} />
+                                <span>جزئیات حساب و کد معرفی را ببینم</span>
+                              </Link>
                             </div>
                           ) : (
                             <div className="auth-actions-group">
                               <button className="btn-secondary" onClick={handleBuyCredits}>
-                                <CreditCard size={16} /> ۵ اعتبار تستی بگیرم
+                                <CreditCard size={16} /> ۵ اعتبار بگیرم
                               </button>
                               <button className="btn-primary" onClick={handlePaidDecode} disabled={credits < 1 || loading}>
                                 {loading ? <RefreshCw className="animate-spin" size={16} /> : <Sparkles size={16} />}
                                 <span>پاسخ‌های قابل ارسال را بساز</span>
                               </button>
+                            </div>
+                          )}
+                          {token && myReferral && (
+                            <div className="contact-empty-note">
+                              کد معرفی شما: <strong>{myReferral.referral_code}</strong> · هر شماره جدید با این کد، {myReferral.reward_credits} اعتبار برای شما فعال می‌کند.
                             </div>
                           )}
                         </div>
@@ -967,6 +1059,9 @@ export default function DecoderPage() {
                       <div className="result-card">
                         <h3>خلاصه عمیق‌تر قبل از ارسال</h3>
                         <p>{paidResult.paid_output.deep_read}</p>
+                        {paidResult.paid_output.personalization_note && (
+                          <p>{paidResult.paid_output.personalization_note}</p>
+                        )}
                       </div>
 
                       {paidResult.paid_output.reply_options.map((reply) => (
@@ -985,9 +1080,11 @@ export default function DecoderPage() {
                               </div>
                             </div>
                           )}
-                          <button className="mini-action selected-reply-action" type="button" onClick={() => handleSelectedReply(reply.label)}>
-                            این گزینه را انتخاب کردم
-                          </button>
+                          {!freeResultGhost && (
+                            <button className="mini-action selected-reply-action" type="button" onClick={() => handleSelectedReply(reply.label)}>
+                              این گزینه را انتخاب کردم
+                            </button>
+                          )}
                           <button className="btn-secondary copy-btn" onClick={() => handleCopy(reply.text, reply.label)}>
                             {copiedIndex === reply.label ? (
                               <>
