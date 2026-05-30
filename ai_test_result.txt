@@ -1,0 +1,5 @@
+--- Test 1: With response_format JSON ---
+Test 1 Failed with exception: [Errno 8] nodename nor servname provided, or not known
+
+--- Test 2: Without response_format JSON ---
+Test 2 Failed with exception: [Errno 8] nodename nor servname provided, or not known

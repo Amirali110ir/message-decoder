@@ -29,6 +29,17 @@ async def telegram_webhook(
     return {"ok": True}
 
 
+def _parse_start_referral(text: str) -> str | None:
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        return None
+    payload = parts[1].strip()
+    if not payload.startswith("ref_"):
+        return None
+    code = payload.removeprefix("ref_").strip().upper()
+    return code or None
+
+
 async def _handle_message(message: dict[str, Any]) -> None:
     chat_id = str(message.get("chat", {}).get("id") or "")
     from_user = message.get("from") or {}
@@ -41,14 +52,27 @@ async def _handle_message(message: dict[str, Any]) -> None:
     contact = message.get("contact")
 
     if text.startswith("/start"):
+        referral_code = _parse_start_referral(text)
+        if referral_code and not session.get("user_id"):
+            tg.update_telegram_session(telegram_id, pending_referral_code=referral_code)
         if session.get("user_id"):
             await tg.send_telegram_message(chat_id, "پیامت را بفرست تا سریع تحلیلش کنم.")
         else:
-            await tg.send_telegram_message(
-                chat_id,
-                "به Message Decoder خوش آمدی. برای شروع، شماره موبایلت را با دکمه زیر تایید کن.",
-                tg.contact_keyboard(),
-            )
+            intro = "به Message Decoder خوش آمدی. برای شروع، شماره موبایلت را با دکمه زیر تایید کن."
+            if referral_code:
+                intro = f"با کد معرفی {referral_code} وارد شدی. شماره موبایلت را تایید کن تا اعتبار هدیه فعال شود."
+            await tg.send_telegram_message(chat_id, intro, tg.contact_keyboard())
+        return
+
+    if text.startswith("/referral"):
+        if not session.get("user_id"):
+            await tg.send_telegram_message(chat_id, "اول با /start شماره‌ات را وصل کن تا کد معرفی اختصاصی بگیری.", tg.contact_keyboard())
+            return
+        referral = tg.get_or_create_referral(str(session["user_id"]))
+        await tg.send_telegram_message(
+            chat_id,
+            f"کد معرفی تو:\n<b>{referral['code']}</b>\n\nلینک دعوت:\n{referral['url']}\n\nهر شماره جدیدی که با این کد ثبت‌نام کند، ۵ اعتبار برای تو فعال می‌شود.",
+        )
         return
 
     if text.startswith("/cancel"):
@@ -78,7 +102,10 @@ async def _handle_message(message: dict[str, Any]) -> None:
         if not phone:
             await tg.send_telegram_message(chat_id, "شماره دریافت نشد. دوباره از دکمه اشتراک‌گذاری شماره استفاده کن.")
             return
-        _, balance, created = tg.link_telegram_contact(telegram_id, chat_id, phone)
+        pending_referral = session.get("pending_referral_code")
+        _, balance, created = tg.link_telegram_contact(telegram_id, chat_id, phone, pending_referral)
+        if pending_referral:
+            tg.update_telegram_session(telegram_id, pending_referral_code=None)
         bonus_note = " اعتبار هدیه فعال شد." if created and balance > 0 else ""
         await tg.send_telegram_message(chat_id, f"حساب تلگرام وصل شد.{bonus_note}\nحالا پیام را بفرست.")
         return

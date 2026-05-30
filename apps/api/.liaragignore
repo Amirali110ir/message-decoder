@@ -1,0 +1,27 @@
+# Python
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+**/.pytest_cache/
+
+# Local databases (production DB lives on disk)
+*.db
+*.sqlite
+*.sqlite3
+qa_message_decoder*.db
+test_message_decoder.db
+
+# Test files
+tests/
+test_*.py
+ai_test.py
+ai_test2.py
+ai_test_result.txt
+
+# Dev files
+.env
+runtime.txt

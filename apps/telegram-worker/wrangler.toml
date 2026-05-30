@@ -1,0 +1,19 @@
+name = "message-decoder-telegram"
+main = "src/worker.js"
+compatibility_date = "2025-05-24"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "message-decoder-telegram"
+database_id = "b8215e78-ee0e-49db-9641-e52494b2f1f5"
+
+[vars]
+SIGNUP_BONUS_CREDITS = "5"
+CF_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+AI_API_BASE_URL = "https://ai.liara.ir/api/6a0a3d119e145954af352534/v1"
+AI_FREE_MODEL = "qwen/qwen-2.5-72b-instruct"
+AI_PAID_MODEL = "qwen/qwen-2.5-72b-instruct"
+LIARA_API_URL = "https://message-decoder-py.liara.run"
+
+[ai]
+binding = "AI"

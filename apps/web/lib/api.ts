@@ -250,6 +250,56 @@ export function paidDecodeGhost(
   });
 }
 
+export type ToneTarget = "softer" | "firmer" | "shorter" | "warmer" | "formal";
+
+export type ToneEditResponse = {
+  tone: ToneTarget;
+  tone_label: string;
+  text: string;
+};
+
+export type BeforeSendResponse = {
+  risk_level: "کم" | "متوسط" | "زیاد";
+  risk_score: number;
+  summary: string;
+  flags: string[];
+  suggestions: string[];
+  improved_text?: string | null;
+};
+
+export function toneEdit(
+  token: string,
+  input: {
+    reply_text: string;
+    target_tone: ToneTarget;
+    relationship_type: RelationshipType;
+    user_goal: UserGoal;
+    original_message?: string | null;
+  }
+) {
+  return request<ToneEditResponse>("/decode/tone-edit", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input)
+  });
+}
+
+export function beforeSendCheck(
+  token: string,
+  input: {
+    draft_text: string;
+    relationship_type: RelationshipType;
+    user_goal: UserGoal;
+    original_message?: string | null;
+  }
+) {
+  return request<BeforeSendResponse>("/decode/before-send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input)
+  });
+}
+
 export function getDecodeHistory(token: string) {
   return request<{ items: DecodeHistoryItem[] }>("/decode/history", {
     headers: { Authorization: `Bearer ${token}` }

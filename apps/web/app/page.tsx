@@ -61,6 +61,7 @@ export default function Home() {
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [credits, setCredits] = useState(0);
+  const [heroMessage, setHeroMessage] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
@@ -102,7 +103,7 @@ export default function Home() {
       window.localStorage.setItem("message-decoder-token", result.token);
       window.localStorage.setItem("message-decoder-phone", phone);
       setStatus("اعتبار فعال شد؛ حالا می‌توانید پاسخ کامل بسازید.");
-      window.setTimeout(() => window.location.assign("/dashboard"), 700);
+      window.setTimeout(() => window.location.assign("/decoder"), 700);
     } catch (err) {
       setError(err instanceof Error ? err.message : "این کد درست نیست یا منقضی شده است.");
       setStatus("");
@@ -145,17 +146,31 @@ export default function Home() {
           <div className="hero-copy">
             <div className="trust-strip">
               <span>تحلیل اول بدون ورود</span>
-              <span>چند برداشت محتمل، نه ذهن‌خوانی</span>
+              <span>رایگان، بدون ثبت‌نام</span>
             </div>
             <h1>پیام مبهم را بفهمید؛ با اضطراب کمتر جواب بدهید.</h1>
             <p className="hero-subtitle">
               متن پیام را بگذارید تا برداشت محتمل، ریسک سوءتفاهم و مسیر پاسخ کم‌تنش‌تر را ببینید. Message Decoder ذهن‌خوانی نمی‌کند؛ فقط کمک می‌کند قبل از واکنش، چند احتمال انسانی‌تر را بررسی کنید.
             </p>
-            <div className="hero-actions">
-              <Link className="btn-primary" href="/decoder">
+            <div className="hero-mini-form">
+              <textarea
+                value={heroMessage}
+                onChange={(event) => setHeroMessage(event.target.value)}
+                placeholder="پیام مبهمی که دریافت کردید را اینجا بگذارید..."
+                rows={3}
+              />
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  const path = heroMessage.trim()
+                    ? `/decoder?msg=${encodeURIComponent(heroMessage.trim())}`
+                    : "/decoder";
+                  window.location.assign(path);
+                }}
+              >
                 <Sparkles size={18} />
-                <span>تحلیل پیامم را رایگان ببینم</span>
-              </Link>
+                <span>تحلیل رایگان این پیام</span>
+              </button>
             </div>
             <div className="testimonial-chip">
               <span className="quote-mark" aria-hidden="true">
@@ -264,19 +279,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="neuroscience-section">
-        <div className="shell science-layout">
-          <div>
-            <span className="section-kicker">قبل از واکنش</span>
-            <h2>نه ذهن‌خوانی؛ یک مکث هوشمند قبل از پاسخ</h2>
-          </div>
-          <div className="story-copy">
-            <p>وقتی پیام سرد، کنایه‌آمیز یا فشارآور می‌رسد، ذهن سریع بدترین سناریو را می‌سازد. Message Decoder پیام را از زاویه نیاز، ریسک و هدف پاسخ بررسی می‌کند تا فقط با سطح کلمات تصمیم نگیرید.</p>
-            <p>خروجی ابزار حکم قطعی درباره نیت طرف مقابل نیست. چند برداشت محتمل است که کمک می‌کند جواب شما هم روشن باشد، هم تنش بی‌دلیل نسازد.</p>
-          </div>
-        </div>
-      </section>
-
       <section className="benefits-section">
         <div className="shell">
           <div className="benefit-grid">
@@ -311,19 +313,6 @@ export default function Home() {
                 <p>{lens.text}</p>
               </article>
             ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="story-section">
-        <div className="shell story-layout">
-          <div>
-            <span className="section-kicker">لحظه تصمیم</span>
-            <h2>همان لحظه‌ای که چند جواب می‌نویسید و پاک می‌کنید.</h2>
-          </div>
-          <div className="story-copy">
-            <p>«معلومه که اصلاً برات مهم نیست.» یا از طرف مدیرتان: «چرا باید دوباره پیگیری کنم؟» هر دو می‌توانند شما را بین توضیح دادن، دفاع کردن یا سکوت گیر بیندازند.</p>
-            <p>ابزار اول موقعیت را ساده می‌کند: این پیام چه نیازی را نشان می‌دهد، چه پاسخی ریسک را بالا می‌برد و کدام مسیر احتمالاً گفتگو را سالم‌تر نگه می‌دارد.</p>
           </div>
         </div>
       </section>

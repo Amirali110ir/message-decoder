@@ -304,6 +304,209 @@ async def paid_decode(
     )
 
 
+TONE_LABELS: dict[str, str] = {
+    "softer": "نرم‌تر",
+    "firmer": "قاطع‌تر",
+    "shorter": "کوتاه‌تر",
+    "warmer": "گرم‌تر",
+    "formal": "رسمی‌تر",
+}
+
+_TONE_GUIDE: dict[str, str] = {
+    "softer": "همان معنا را با لحن نرم‌تر، کم‌تنش‌تر و همدلانه‌تر بازنویسی کن، بدون اینکه التماس یا ضعف نشان دهد.",
+    "firmer": "همان معنا را قاطع‌تر و با مرز روشن‌تر بازنویسی کن، اما بدون تحقیر، تهدید یا پرخاش.",
+    "shorter": "همان پیام را خیلی کوتاه‌تر و موجزتر بنویس؛ فقط هسته اصلی پیام بماند.",
+    "warmer": "همان پیام را گرم‌تر، صمیمی‌تر و انسانی‌تر بازنویسی کن، بدون اینکه غیرحرفه‌ای شود.",
+    "formal": "همان پیام را رسمی‌تر و حرفه‌ای‌تر بازنویسی کن؛ از واژگان محترمانه و ساختار مرتب استفاده کن.",
+}
+
+
+async def tone_edit(
+    reply_text: str,
+    target_tone: str,
+    relationship_type: str,
+    user_goal: str,
+    original_message: str | None = None,
+) -> str:
+    if _use_ai_provider():
+        ai_text = await _tone_edit_with_ai(reply_text, target_tone, relationship_type, user_goal, original_message)
+        if ai_text:
+            return ai_text
+    return _tone_edit_fallback(reply_text, target_tone)
+
+
+def _tone_edit_fallback(reply_text: str, target_tone: str) -> str:
+    text = reply_text.strip()
+    if target_tone == "shorter":
+        parts = re.split(r"(?<=[.؟!\n])\s+", text)
+        core = next((p.strip() for p in parts if p.strip()), text)
+        return core
+    if target_tone == "softer":
+        return f"می‌دونم موضوع حساسه و نمی‌خوام تند باشم. {text}"
+    if target_tone == "firmer":
+        return f"می‌خوام روشن و محکم بگم: {text} این برای من مهمه و همین‌طور می‌مونه."
+    if target_tone == "warmer":
+        return f"تو و رابطه‌مون برام مهمی. {text}"
+    if target_tone == "formal":
+        return f"با احترام، {text} پیشاپیش از توجه شما سپاس‌گزارم."
+    return text
+
+
+async def _tone_edit_with_ai(
+    reply_text: str,
+    target_tone: str,
+    relationship_type: str,
+    user_goal: str,
+    original_message: str | None,
+) -> str | None:
+    user_prompt = {
+        "task": "tone_edit",
+        "reply_text": reply_text,
+        "target_tone": target_tone,
+        "tone_instruction": _TONE_GUIDE.get(target_tone, ""),
+        "relationship_type": relationship_type,
+        "user_goal": user_goal,
+        "original_message": original_message,
+        "requirements": [
+            "فقط لحن و سبک را تغییر بده؛ معنا و موضع اصلی پیام را عوض نکن.",
+            "خروجی باید یک پیام فارسی طبیعی و قابل ارسال باشد.",
+            "هیچ پاسخ manipulative، تحقیرآمیز، تهدیدآمیز یا التماس‌گونه نساز.",
+            "فقط JSON با کلید text برگردان.",
+        ],
+        "json_schema_shape": {"text": "string"},
+    }
+    data = await _chat_json(user_prompt, model=_model_for_task("free"))
+    if not data:
+        return None
+    text = data.get("text")
+    return text.strip() if isinstance(text, str) and text.strip() else None
+
+
+_BEFORE_SEND_BLAME = ["همیشه", "هیچوقت", "هیچ‌وقت", "هیچ وقت", "مشکل خودته", "تو مقصری", "تقصیر توئه", "عین همیشه", "بازم که"]
+_BEFORE_SEND_HARSH = ["خفه", "احمق", "بی‌شعور", "مزخرف", "حالم بهم", "متنفر", "گمشو", "لعنت"]
+
+
+async def before_send_check(
+    draft_text: str,
+    relationship_type: str,
+    user_goal: str,
+    original_message: str | None = None,
+):
+    from app.schemas import BeforeSendOut
+
+    if _use_ai_provider():
+        ai_output = await _before_send_with_ai(draft_text, relationship_type, user_goal, original_message)
+        if ai_output is not None:
+            return ai_output
+    return _before_send_fallback(draft_text, relationship_type, user_goal)
+
+
+def _before_send_fallback(draft_text: str, relationship_type: str, user_goal: str):
+    from app.schemas import BeforeSendOut, FreeDecodeIn
+
+    draft = draft_text.strip()
+    classification = classify(
+        FreeDecodeIn(message_text=draft, relationship_type=relationship_type, user_goal=user_goal)  # type: ignore[arg-type]
+    )
+    tone = tone_stress_from_classification(classification)
+    score = min(tone.intensity, 90)
+    flags: list[str] = []
+    suggestions: list[str] = []
+
+    if classification.manipulative:
+        score += 18
+        flags.append("پیام رنگ فشار روانی یا گناه‌اندازی دارد.")
+        suggestions.append("به‌جای ساختن حس گناه، احساس و نیاز خودت را مستقیم بگو.")
+
+    blame_hits = [w for w in _BEFORE_SEND_BLAME if w in draft]
+    if blame_hits:
+        score += 15
+        flags.append("کلمات مطلق یا سرزنش‌گر دارد: " + "، ".join(blame_hits[:3]) + ".")
+        suggestions.append("به‌جای «همیشه/هیچوقت»، به همین موقعیت مشخص اشاره کن.")
+
+    harsh_hits = [w for w in _BEFORE_SEND_HARSH if w in draft]
+    if harsh_hits:
+        score += 30
+        flags.append("لحن توهین‌آمیز یا پرخاشگر دارد.")
+        suggestions.append("کلمات تند را حذف کن؛ پیام تند معمولاً جواب تند می‌گیرد.")
+
+    if "؟" not in draft and len(draft) > 220:
+        suggestions.append("پیام طولانی است؛ کوتاه‌تر و روشن‌تر کردنش ریسک سوءتفاهم را کم می‌کند.")
+
+    score = max(0, min(score, 100))
+    if score >= 65:
+        level = "زیاد"
+    elif score >= 35:
+        level = "متوسط"
+    else:
+        level = "کم"
+
+    if not flags:
+        flags.append("نشانه پرخطر آشکاری دیده نشد.")
+    if not suggestions:
+        suggestions.append("لحن متعادل به نظر می‌رسد؛ قبل از ارسال یک بار از نگاه طرف مقابل بخوانش.")
+
+    improved = None
+    if level != "کم":
+        improved = _tone_edit_fallback(draft, "softer")
+
+    summary = {
+        "کم": "این پیام احتمالاً کم‌ریسک است و می‌تواند ارسال شود.",
+        "متوسط": "این پیام چند نقطه قابل بهبود دارد؛ پیش از ارسال یک‌بار بازنگری کن.",
+        "زیاد": "این پیام ریسک واکنش منفی بالایی دارد؛ بهتر است قبل از ارسال نرم‌ترش کنی.",
+    }[level]
+
+    return BeforeSendOut(
+        risk_level=level,  # type: ignore[arg-type]
+        risk_score=score,
+        summary=summary,
+        flags=flags,
+        suggestions=suggestions,
+        improved_text=improved,
+    )
+
+
+async def _before_send_with_ai(
+    draft_text: str,
+    relationship_type: str,
+    user_goal: str,
+    original_message: str | None,
+):
+    from app.schemas import BeforeSendOut
+
+    schema_hint = {
+        "risk_level": "کم | متوسط | زیاد",
+        "risk_score": 0,
+        "summary": "string",
+        "flags": ["string"],
+        "suggestions": ["string"],
+        "improved_text": "string | null",
+    }
+    user_prompt = {
+        "task": "before_send",
+        "draft_text": draft_text,
+        "original_message": original_message,
+        "relationship_type": relationship_type,
+        "user_goal": user_goal,
+        "requirements": [
+            "این متنی است که خود کاربر می‌خواهد بفرستد؛ ریسک واکنش منفی طرف مقابل را ارزیابی کن.",
+            "risk_score بین ۰ تا ۱۰۰ و risk_level یکی از کم/متوسط/زیاد باشد و با هم سازگار باشند.",
+            "flags: نقاط پرخطر مشخص مثل لحن تند، سرزنش مطلق، گناه‌اندازی، ابهام یا طول زیاد.",
+            "suggestions: پیشنهادهای کوتاه و عملی برای کم‌ریسک‌تر کردن پیام.",
+            "اگر ریسک متوسط یا زیاد بود، improved_text یک بازنویسی کم‌ریسک‌تر و قابل ارسال بده؛ وگرنه null.",
+            "قطعی درباره نیت طرف مقابل حرف نزن و فارسی طبیعی بنویس.",
+        ],
+        "json_schema_shape": schema_hint,
+    }
+    data = await _chat_json(user_prompt, model=_model_for_task("free"))
+    if data is None:
+        return None
+    try:
+        return BeforeSendOut.model_validate(data)
+    except Exception:
+        return None
+
+
 def with_reaction_predictions(replies: list[ReplyOption], relationship_type: str, dominant_lens: str) -> list[ReplyOption]:
     fallback = {
         "dopamine": "احتمالاً طرف مقابل سریع‌تر روی اقدام، تصمیم یا پاسخ مشخص تمرکز می‌کند.",

@@ -107,8 +107,13 @@ def get_or_create_telegram_session(telegram_id: str, chat_id: str) -> dict:
         }
 
 
-def link_telegram_contact(telegram_id: str, chat_id: str, phone: str) -> tuple[str, int, bool]:
-    from app.services.auth import normalize_digits
+def link_telegram_contact(
+    telegram_id: str,
+    chat_id: str,
+    phone: str,
+    referral_code: str | None = None,
+) -> tuple[str, int, bool]:
+    from app.services.auth import normalize_digits, generate_referral_code, _find_referrer
 
     normalized_phone = normalize_digits(phone)
     settings = get_settings()
@@ -118,18 +123,34 @@ def link_telegram_contact(telegram_id: str, chat_id: str, phone: str) -> tuple[s
         if user is None:
             user_id = new_id("user")
             balance = max(0, settings.signup_bonus_credits)
+            referrer = _find_referrer(conn, referral_code)
             conn.execute(
                 """
-                INSERT INTO users (id, phone, telegram_id, created_at, credit_balance, source_channel)
-                VALUES (?, ?, ?, ?, ?, 'telegram')
+                INSERT INTO users (id, phone, telegram_id, created_at, credit_balance, source_channel, referral_code, referred_by_user_id)
+                VALUES (?, ?, ?, ?, ?, 'telegram', ?, ?)
                 """,
-                (user_id, normalized_phone, telegram_id, now_iso(), balance),
+                (
+                    user_id,
+                    normalized_phone,
+                    telegram_id,
+                    now_iso(),
+                    balance,
+                    generate_referral_code(),
+                    referrer["id"] if referrer else None,
+                ),
             )
+            if referrer:
+                conn.execute(
+                    "UPDATE users SET credit_balance = credit_balance + 5, referral_awarded_at = COALESCE(referral_awarded_at, ?) WHERE id = ?",
+                    (now_iso(), referrer["id"]),
+                )
             created = True
         else:
             user_id = str(user["id"])
             balance = int(user["credit_balance"])
             conn.execute("UPDATE users SET telegram_id = ? WHERE id = ?", (telegram_id, user_id))
+            if not user["referral_code"]:
+                conn.execute("UPDATE users SET referral_code = ? WHERE id = ?", (generate_referral_code(), user_id))
 
         conn.execute(
             """
@@ -144,6 +165,18 @@ def link_telegram_contact(telegram_id: str, chat_id: str, phone: str) -> tuple[s
             (telegram_id, user_id, chat_id, now_iso(), now_iso()),
         )
         return user_id, balance, created
+
+
+def get_or_create_referral(user_id: str) -> dict[str, str]:
+    from app.services.auth import generate_referral_code
+
+    with db() as conn:
+        row = conn.execute("SELECT referral_code FROM users WHERE id = ?", (user_id,)).fetchone()
+        code = row["referral_code"] if row else None
+        if not code:
+            code = generate_referral_code()
+            conn.execute("UPDATE users SET referral_code = ? WHERE id = ?", (code, user_id))
+    return {"code": str(code), "url": f"https://t.me/MeDecoderBot?start=ref_{code}"}
 
 
 def create_session_token(user_id: str) -> str:

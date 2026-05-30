@@ -253,6 +253,7 @@ def init_db() -> None:
         _ensure_column(conn, "contacts", "memory_json", "TEXT")
         _ensure_column(conn, "contacts", "memory_summary", "TEXT")
         _ensure_column(conn, "contacts", "updated_at", "TEXT")
+        _ensure_column(conn, "telegram_sessions", "pending_referral_code", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sms_send_logs_created_at ON sms_send_logs(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sms_send_logs_provider_status ON sms_send_logs(provider, status)")
 

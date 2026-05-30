@@ -5,6 +5,8 @@ from typing import Optional
 
 from app.database import db
 from app.schemas import (
+    BeforeSendIn,
+    BeforeSendOut,
     DecodeHistoryItem,
     DecodeHistoryOut,
     FreeDecodeIn,
@@ -13,6 +15,8 @@ from app.schemas import (
     OkOut,
     PaidDecodeIn,
     PaidDecodeResponse,
+    ToneEditIn,
+    ToneEditOut,
 )
 from app.services.analytics import track
 from app.services.ai import (
@@ -20,11 +24,14 @@ from app.services.ai import (
     PROMPT_VERSION,
     PaidDecodeUnavailable,
     RULE_ENGINE_VERSION,
+    TONE_LABELS,
+    before_send_check,
     classify,
     current_model_version,
     free_decode,
     paid_decode,
     safety_output,
+    tone_edit,
 )
 from app.services.auth import get_current_user_id
 from app.services.contact_memory import (
@@ -271,6 +278,35 @@ async def create_ghost_paid_decode(payload: GhostPaidDecodeIn, user_id: str = De
     track("paid_decode_generated", user_id=user_id, payload={"decode_id": payload.decode_id, "ghost_mode": True})
     return PaidDecodeResponse(decode_id=payload.decode_id, paid_output=paid_model.model_dump(), credit_balance=int(balance))
 
+
+
+@router.post("/decode/tone-edit", response_model=ToneEditOut)
+async def tone_edit_reply(payload: ToneEditIn, user_id: str = Depends(get_current_user_id)) -> ToneEditOut:
+    text = await tone_edit(
+        payload.reply_text,
+        payload.target_tone,
+        payload.relationship_type,
+        payload.user_goal,
+        payload.original_message,
+    )
+    track("tone_edit_used", user_id=user_id, payload={"target_tone": payload.target_tone})
+    return ToneEditOut(
+        tone=payload.target_tone,
+        tone_label=TONE_LABELS.get(payload.target_tone, payload.target_tone),
+        text=text,
+    )
+
+
+@router.post("/decode/before-send", response_model=BeforeSendOut)
+async def before_send(payload: BeforeSendIn, user_id: str = Depends(get_current_user_id)) -> BeforeSendOut:
+    result = await before_send_check(
+        payload.draft_text,
+        payload.relationship_type,
+        payload.user_goal,
+        payload.original_message,
+    )
+    track("before_send_checked", user_id=user_id, payload={"risk_level": result.risk_level})
+    return result
 
 
 def free_decode_output_from_dict(data: dict):

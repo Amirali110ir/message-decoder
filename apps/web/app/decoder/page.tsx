@@ -7,15 +7,12 @@ import {
   BookOpenCheck,
   BrainCircuit,
   Check,
-  Compass,
   Copy,
   CreditCard,
   EyeOff,
   Fingerprint,
-  Flame,
   Glasses,
   History,
-  HeartHandshake,
   LockKeyhole,
   LogIn,
   MessageCircle,
@@ -23,7 +20,6 @@ import {
   MessageSquareText,
   Radar,
   RefreshCw,
-  Scale,
   Save,
   ShieldCheck,
   ShieldAlert,
@@ -38,7 +34,9 @@ import {
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Contact, DecodeHistoryItem, RelationshipThermometer } from "../../lib/api";
+import type { ToneTarget, ToneEditResponse, BeforeSendResponse } from "../../lib/api";
 import {
+  beforeSendCheck,
   copyEvent,
   createContact,
   createPayment,
@@ -59,6 +57,7 @@ import {
   requestOtp,
   sendFeedback,
   sendSelectedReplyFeedback,
+  toneEdit,
   updateContact,
   verifyPayment,
   verifyOtpWithReferral
@@ -84,6 +83,14 @@ const goalOptions = [
   ["end_conversation", "مکالمه را محترمانه ببندم"],
   ["understand_only", "فعلاً فقط پیام را بفهمم"]
 ] as const;
+
+const toneOptions: [ToneTarget, string][] = [
+  ["softer", "نرم‌تر"],
+  ["firmer", "قاطع‌تر"],
+  ["shorter", "کوتاه‌تر"],
+  ["warmer", "گرم‌تر"],
+  ["formal", "رسمی‌تر"]
+];
 
 const playbookTemplates = [
   {
@@ -143,11 +150,21 @@ export default function DecoderPage() {
   const [token, setToken] = useState("");
   const [credits, setCredits] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [showSecondaryResults, setShowSecondaryResults] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
+  const [toneEdits, setToneEdits] = useState<Record<string, ToneEditResponse>>({});
+  const [toneLoading, setToneLoading] = useState<string | null>(null);
+  const [draftText, setDraftText] = useState("");
+  const [beforeSendResult, setBeforeSendResult] = useState<BeforeSendResponse | null>(null);
+  const [beforeSendLoading, setBeforeSendLoading] = useState(false);
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const prefillMsg = searchParams.get("msg");
+    if (prefillMsg) setMessage(decodeURIComponent(prefillMsg));
+
     const savedToken = window.localStorage.getItem("message-decoder-token") || "";
     const savedPhone = window.localStorage.getItem("message-decoder-phone") || "";
     if (!savedToken) return;
@@ -175,6 +192,7 @@ export default function DecoderPage() {
     if (!message.trim()) return;
     setError("");
     setLoading(true);
+    setShowSecondaryResults(false);
     setStatus("داریم پیام را از نظر لحن، ریسک و نیاز احتمالی می‌خوانیم...");
     setPaidResult(null);
     try {
@@ -325,6 +343,55 @@ export default function DecoderPage() {
       setTimeout(() => setCopiedIndex(null), 2000);
     } catch (err) {
       setError("کپی خودکار انجام نشد. می‌توانید متن پاسخ را دستی انتخاب و کپی کنید.");
+    }
+  }
+
+  async function handleToneEdit(replyLabel: string, replyText: string, tone: ToneTarget) {
+    if (!token) {
+      setError("برای ویرایش لحن، اول وارد شوید.");
+      return;
+    }
+    setError("");
+    setToneLoading(`${replyLabel}:${tone}`);
+    try {
+      const res = await toneEdit(token, {
+        reply_text: replyText,
+        target_tone: tone,
+        relationship_type: relationship as never,
+        user_goal: goal as never,
+        original_message: message || undefined
+      });
+      setToneEdits((prev) => ({ ...prev, [replyLabel]: res }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ویرایش لحن انجام نشد.");
+    } finally {
+      setToneLoading(null);
+    }
+  }
+
+  async function handleBeforeSend() {
+    if (!token) {
+      setError("برای بررسی پیش از ارسال، اول وارد شوید.");
+      return;
+    }
+    if (!draftText.trim()) {
+      setError("متنی که می‌خواهید بفرستید را وارد کنید.");
+      return;
+    }
+    setError("");
+    setBeforeSendLoading(true);
+    try {
+      const res = await beforeSendCheck(token, {
+        draft_text: draftText.trim(),
+        relationship_type: relationship as never,
+        user_goal: goal as never,
+        original_message: message || undefined
+      });
+      setBeforeSendResult(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "بررسی پیش از ارسال انجام نشد.");
+    } finally {
+      setBeforeSendLoading(false);
     }
   }
 
@@ -886,9 +953,7 @@ export default function DecoderPage() {
 
                       {freeResultGhost && (
                         <div className="result-card ghost-result-card">
-                          <h3>
-                            <ShieldCheck size={14} /> این تحلیل در حالت شبح بود
-                          </h3>
+                          <h3>این تحلیل در حالت شبح بود</h3>
                           <p>متن و خروجی در تاریخچه ذخیره نشده است. اگر پاسخ کامل بسازید، همان پاسخ هم ذخیره نمی‌شود و فقط ۱ اعتبار مصرف می‌شود.</p>
                         </div>
                       )}
@@ -899,7 +964,7 @@ export default function DecoderPage() {
                             <Glasses size={14} />
                             <span>{freeResult.free_output.dominant_lens.fa}</span>
                           </span>
-                        <span className="confidence-badge">میزان اطمینان: {freeResult.free_output.confidence}</span>
+                          <span className="confidence-badge">میزان اطمینان: {freeResult.free_output.confidence}</span>
                         </div>
                         <h3>برداشت محتمل اصلی</h3>
                         {freeResult.free_output.message_focus && (
@@ -911,47 +976,47 @@ export default function DecoderPage() {
                         )}
                       </div>
 
-                      <div className="result-card">
-                        <h3>
-                          <Activity size={14} /> چرا این برداشت محتمل است؟
-                        </h3>
-                        <p>{freeResult.free_output.why_this_lens}</p>
-                      </div>
-
-                      <div className="result-card">
-                        <h3>
-                          <HeartHandshake size={14} /> نیاز یا نگرانی پشت پیام
-                        </h3>
-                        <p>{freeResult.free_output.likely_underlying_need}</p>
-                      </div>
-
                       <div className="result-card warning-card">
-                        <h3>
-                          <Flame size={14} /> اگر عجولانه جواب دهید چه می‌شود؟
-                        </h3>
+                        <h3>اگر عجولانه جواب دهید</h3>
                         <p>{freeResult.free_output.conversation_risk}</p>
                       </div>
 
                       <div className="result-card success-card">
-                        <h3>
-                          <Compass size={14} /> مسیر پاسخ کم‌تنش‌تر
-                        </h3>
+                        <h3>مسیر پاسخ کم‌تنش‌تر</h3>
                         <p>{freeResult.free_output.recommended_direction}</p>
                       </div>
 
-                      <div className="result-card">
-                        <h3>
-                          <Scale size={14} /> برداشت جایگزین را هم ببینید
-                        </h3>
-                        <p>{freeResult.free_output.alternative_read}</p>
-                      </div>
+                      <button
+                        className="secondary-results-toggle"
+                        type="button"
+                        onClick={() => setShowSecondaryResults((v) => !v)}
+                      >
+                        {showSecondaryResults ? "بستن جزئیات ↑" : "جزئیات بیشتر: چرا این برداشت + نیاز پشت پیام + برداشت جایگزین ↓"}
+                      </button>
 
-                      {freeResult.free_output.privacy_warning && (
-                        <div className="result-card danger-card">
-                          <h3>
-                            <ShieldAlert size={14} /> نکته حریم خصوصی
-                          </h3>
-                          <p>{freeResult.free_output.privacy_warning}</p>
+                      {showSecondaryResults && (
+                        <div className="secondary-results">
+                          <div className="result-card">
+                            <h3>چرا این برداشت محتمل است؟</h3>
+                            <p>{freeResult.free_output.why_this_lens}</p>
+                          </div>
+
+                          <div className="result-card">
+                            <h3>نیاز یا نگرانی پشت پیام</h3>
+                            <p>{freeResult.free_output.likely_underlying_need}</p>
+                          </div>
+
+                          <div className="result-card">
+                            <h3>برداشت جایگزین</h3>
+                            <p>{freeResult.free_output.alternative_read}</p>
+                          </div>
+
+                          {freeResult.free_output.privacy_warning && (
+                            <div className="result-card danger-card">
+                              <h3>نکته حریم خصوصی</h3>
+                              <p>{freeResult.free_output.privacy_warning}</p>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1098,13 +1163,49 @@ export default function DecoderPage() {
                               </>
                             )}
                           </button>
+
+                          <div className="tone-edit-row">
+                            <span className="tone-edit-label">لحن را عوض کن:</span>
+                            {toneOptions.map(([tone, label]) => (
+                              <button
+                                key={tone}
+                                type="button"
+                                className="tone-edit-btn"
+                                disabled={toneLoading !== null}
+                                onClick={() => handleToneEdit(reply.label, reply.text, tone)}
+                              >
+                                {toneLoading === `${reply.label}:${tone}` ? "..." : label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {toneEdits[reply.label] && (
+                            <div className="tone-edit-result">
+                              <div className="tone-edit-result-badge">نسخه {toneEdits[reply.label].tone_label}</div>
+                              <div className="reply-bubble">{toneEdits[reply.label].text}</div>
+                              <button
+                                className="btn-secondary copy-btn"
+                                onClick={() => handleCopy(toneEdits[reply.label].text, `${reply.label}-tone`)}
+                              >
+                                {copiedIndex === `${reply.label}-tone` ? (
+                                  <>
+                                    <Check size={14} />
+                                    <span>کپی شد</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy size={14} />
+                                    <span>کپی نسخه ویرایش‌شده</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ))}
 
                       <div className="result-card danger-card">
-                        <h3>
-                          <ShieldAlert size={14} /> کلماتی که ممکن است تنش را بیشتر کنند
-                        </h3>
+                        <h3>کلماتی که ممکن است تنش را بیشتر کنند</h3>
                         <div className="words-avoid-container">
                           {paidResult.paid_output.words_to_avoid.map((word, i) => (
                             <span className="word-tag" key={i}>
@@ -1112,6 +1213,71 @@ export default function DecoderPage() {
                             </span>
                           ))}
                         </div>
+                      </div>
+
+                      <div className="result-card before-send-card">
+                        <h3>بررسی قبل از ارسال</h3>
+                        <p>متنی که می‌خواهی بفرستی را اینجا بگذار تا ریسک واکنش منفی و نکات قابل بهبودش را قبل از ارسال ببینی.</p>
+                        <textarea
+                          className="before-send-input"
+                          value={draftText}
+                          onChange={(event) => setDraftText(event.target.value)}
+                          placeholder="متنی که می‌خواهید بفرستید..."
+                          rows={3}
+                        />
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          disabled={beforeSendLoading}
+                          onClick={handleBeforeSend}
+                        >
+                          {beforeSendLoading ? "در حال بررسی..." : "قبل از ارسال بررسی کن"}
+                        </button>
+                        {beforeSendResult && (
+                          <div className={`before-send-result risk-${beforeSendResult.risk_level === "زیاد" ? "high" : beforeSendResult.risk_level === "متوسط" ? "mid" : "low"}`}>
+                            <div className="before-send-meta">
+                              <strong>ریسک: {beforeSendResult.risk_level}</strong>
+                              <span>{beforeSendResult.risk_score}٪</span>
+                            </div>
+                            <p>{beforeSendResult.summary}</p>
+                            {beforeSendResult.flags.length > 0 && (
+                              <ul className="before-send-list">
+                                {beforeSendResult.flags.map((flag, i) => (
+                                  <li key={`flag-${i}`}>{flag}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {beforeSendResult.suggestions.length > 0 && (
+                              <ul className="before-send-list before-send-suggestions">
+                                {beforeSendResult.suggestions.map((suggestion, i) => (
+                                  <li key={`sug-${i}`}>{suggestion}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {beforeSendResult.improved_text && (
+                              <div className="tone-edit-result">
+                                <div className="tone-edit-result-badge">نسخه کم‌ریسک‌تر پیشنهادی</div>
+                                <div className="reply-bubble">{beforeSendResult.improved_text}</div>
+                                <button
+                                  className="btn-secondary copy-btn"
+                                  onClick={() => handleCopy(beforeSendResult.improved_text || "", "before-send-improved")}
+                                >
+                                  {copiedIndex === "before-send-improved" ? (
+                                    <>
+                                      <Check size={14} />
+                                      <span>کپی شد</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy size={14} />
+                                      <span>کپی نسخه پیشنهادی</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="feedback-box">

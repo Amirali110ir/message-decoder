@@ -119,6 +119,39 @@ class PaidDecodeOutput(BaseModel):
     follow_up_question: str
 
 
+ToneTarget = Literal["softer", "firmer", "shorter", "warmer", "formal"]
+
+
+class ToneEditIn(BaseModel):
+    reply_text: str = Field(min_length=1, max_length=4000)
+    target_tone: ToneTarget
+    relationship_type: RelationshipType = "unknown"
+    user_goal: UserGoal = "understand_only"
+    original_message: str | None = Field(default=None, max_length=4000)
+
+
+class ToneEditOut(BaseModel):
+    tone: ToneTarget
+    tone_label: str
+    text: str
+
+
+class BeforeSendIn(BaseModel):
+    draft_text: str = Field(min_length=1, max_length=4000)
+    relationship_type: RelationshipType = "unknown"
+    user_goal: UserGoal = "understand_only"
+    original_message: str | None = Field(default=None, max_length=4000)
+
+
+class BeforeSendOut(BaseModel):
+    risk_level: Literal["کم", "متوسط", "زیاد"]
+    risk_score: int = Field(ge=0, le=100)
+    summary: str
+    flags: list[str] = []
+    suggestions: list[str] = []
+    improved_text: str | None = None
+
+
 class SafetyOutput(BaseModel):
     warning_title: str
     priority: str

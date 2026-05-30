@@ -72,12 +72,12 @@
 - [x] `/feedback/selected-reply` برای یادگیری سبک پاسخ انتخاب‌شده.
 - [x] به‌روزرسانی profile_summary مخاطب بر اساس feedback و پاسخ انتخابی.
 - [x] Playbook Hub برای سناریوهای آماده.
-- [ ] Telegram Assistant Bot با backend مشترک.
+- [x] Telegram Assistant Bot با backend مشترک (Cloudflare Worker کامل + FastAPI webhook fallback).
 - [ ] Chrome Extension برای Gmail/LinkedIn/Slack-like surfaces.
 - [ ] Share card بدون متن حساس.
-- [ ] Referral credit.
-- [ ] Tone edit buttons برای پاسخ‌ها.
-- [ ] Before-send checker.
+- [x] Referral credit (وب: verify_otp +۵ به معرف؛ تلگرام: deep-link `start=ref_` و `/referral` در هر دو بات).
+- [x] Tone edit buttons برای پاسخ‌ها (`POST /decode/tone-edit` + دکمه‌های لحن کنار هر پاسخ).
+- [x] Before-send checker (`POST /decode/before-send` + کارت بررسی قبل از ارسال در decoder).
 - [ ] Screenshot/OCR بعد از تثبیت MVP.
 - [ ] Mobile custom keyboard در فاز نهایی.
 
@@ -91,7 +91,7 @@
 
 ## اولویت پیشنهادی بعدی
 
-1. Tone edit buttons و Before-send checker.
-2. Telegram bot / share card / referral بعد از تثبیت retention.
+1. Share card بدون متن حساس (تنها آیتم retention باقی‌مانده از فاز فعلی).
+2. Chrome Extension برای surfaceهای Gmail/LinkedIn/Slack.
 3. Screenshot/OCR و keyboard بعد از تثبیت کانال‌های اصلی.
 4. polish تصویری نهایی بعد از انتخاب scope بعدی.
