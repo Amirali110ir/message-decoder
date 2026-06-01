@@ -109,7 +109,7 @@ export default function SignupPage() {
             <div className="auth-grid">
               <div className="field-group">
                 <label className="field-label">شماره موبایل</label>
-                <input type="tel" inputMode="tel" placeholder="09123456789" value={phone} onChange={(event) => setPhone(event.target.value)} />
+                <input type="tel" inputMode="tel" autoComplete="tel" placeholder="09123456789" value={phone} onChange={(event) => setPhone(event.target.value)} />
               </div>
               <button className="btn-secondary" onClick={sendOtp} disabled={loading}>
                 <Send size={15} />
@@ -119,7 +119,7 @@ export default function SignupPage() {
                 <>
                   <div className="field-group">
                     <label className="field-label">کد ورود</label>
-                    <input type="text" inputMode="numeric" placeholder="کد ۶ رقمی" value={otp} onChange={(event) => setOtp(event.target.value)} />
+                    <input type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="کد ۶ رقمی" value={otp} onChange={(event) => setOtp(event.target.value)} />
                   </div>
                   <div className="field-group">
                     <label className="field-label">کد معرفی اختیاری</label>

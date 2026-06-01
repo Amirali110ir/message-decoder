@@ -32,7 +32,7 @@ import {
   Zap
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Contact, DecodeHistoryItem, RelationshipThermometer } from "../../lib/api";
 import type { ToneTarget, ToneEditResponse, BeforeSendResponse } from "../../lib/api";
 import {
@@ -159,6 +159,15 @@ export default function DecoderPage() {
   const [draftText, setDraftText] = useState("");
   const [beforeSendResult, setBeforeSendResult] = useState<BeforeSendResponse | null>(null);
   const [beforeSendLoading, setBeforeSendLoading] = useState(false);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const feedbackRef = useRef<HTMLDivElement>(null);
+
+  // Bring status/error feedback into view when it changes, so it isn't missed
+  // far above the control that triggered it (T18).
+  useEffect(() => {
+    if (!status && !error) return;
+    feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [status, error]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -189,7 +198,11 @@ export default function DecoderPage() {
   }
 
   async function handleFreeDecode() {
-    if (!message.trim()) return;
+    if (!message.trim()) {
+      setError("متن پیام را وارد کنید تا تحلیل شروع شود.");
+      messageInputRef.current?.focus();
+      return;
+    }
     setError("");
     setLoading(true);
     setShowSecondaryResults(false);
@@ -673,6 +686,7 @@ export default function DecoderPage() {
                   <span>متن پیام</span>
                 </label>
                 <textarea
+                  ref={messageInputRef}
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
                   placeholder="مثلاً: باشه، هر جور راحتی. معلومه که اصلاً برات مهم نیست."
@@ -903,25 +917,27 @@ export default function DecoderPage() {
                 </div>
               )}
 
-              <button className="btn-primary btn-wide" onClick={handleFreeDecode} disabled={!message.trim() || loading}>
+              <button className="btn-primary btn-wide" onClick={handleFreeDecode} disabled={loading}>
                 {loading ? <RefreshCw className="animate-spin" size={18} /> : <Sparkles size={18} />}
                 <span>برداشت پیام را رایگان ببینم</span>
               </button>
             </div>
 
             <div className="panel-card results-panel">
-              {status && (
-                <div className="toast-msg toast-success">
-                  <Check size={16} />
-                  <span>{status}</span>
-                </div>
-              )}
-              {error && (
-                <div className="toast-msg toast-error">
-                  <AlertCircle size={16} />
-                  <span>{error}</span>
-                </div>
-              )}
+              <div ref={feedbackRef} aria-live="polite" aria-atomic="true">
+                {status && (
+                  <div className="toast-msg toast-success" role="status">
+                    <Check size={16} />
+                    <span>{status}</span>
+                  </div>
+                )}
+                {error && (
+                  <div className="toast-msg toast-error" role="alert">
+                    <AlertCircle size={16} />
+                    <span>{error}</span>
+                  </div>
+                )}
+              </div>
 
               {freeResult ? (
                 <div className="results-container">
@@ -1058,6 +1074,8 @@ export default function DecoderPage() {
                               <div className="auth-row">
                                 <input
                                   type="tel"
+                                  inputMode="tel"
+                                  autoComplete="tel"
                                   placeholder="09123456789"
                                   value={phone}
                                   onChange={(event) => setPhone(event.target.value)}
@@ -1071,6 +1089,8 @@ export default function DecoderPage() {
                                 <div className="auth-row">
                                   <input
                                     type="text"
+                                    inputMode="numeric"
+                                    autoComplete="one-time-code"
                                     placeholder="کد ورود"
                                     value={otp}
                                     onChange={(event) => setOtp(event.target.value)}
@@ -1171,7 +1191,7 @@ export default function DecoderPage() {
                                 key={tone}
                                 type="button"
                                 className="tone-edit-btn"
-                                disabled={toneLoading !== null}
+                                disabled={toneLoading === `${reply.label}:${tone}`}
                                 onClick={() => handleToneEdit(reply.label, reply.text, tone)}
                               >
                                 {toneLoading === `${reply.label}:${tone}` ? "..." : label}
@@ -1319,10 +1339,11 @@ export default function DecoderPage() {
 
 type FreeOutput = NonNullable<FreeDecodeResponse["free_output"]>;
 
+// Colors reference the design tokens (T21) instead of re-declaring raw hex.
 const lensMeta = {
-  dopamine: { label: "هدف و کنترل", color: "#8a3ffc" },
-  oxytocin: { label: "امنیت و اعتماد", color: "#1192e8" },
-  serotonin: { label: "شأن و احترام", color: "#009d9a" }
+  dopamine: { label: "هدف و کنترل", color: "var(--cds-lens-dopamine)" },
+  oxytocin: { label: "امنیت و اعتماد", color: "var(--cds-lens-oxytocin)" },
+  serotonin: { label: "شأن و احترام", color: "var(--cds-lens-serotonin)" }
 } as const;
 
 function VisualSignals({ output }: { output: FreeOutput }) {
@@ -1386,7 +1407,7 @@ function LensDonut({ mix, dominantKey }: { mix: Required<FreeOutput>["lens_mix"]
           />
         ))}
         <text x="70" y="66" textAnchor="middle" className="lens-donut-number">
-          {mix[dominantKey as keyof typeof mix]}%
+          {mix[dominantKey as keyof typeof mix]}٪
         </text>
         <text x="70" y="84" textAnchor="middle" className="lens-donut-label">
           لنز غالب

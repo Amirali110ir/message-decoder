@@ -46,6 +46,12 @@
   --cds-spacing-09: 48px;
   --cds-spacing-10: 64px;
   --radius-sm: 2px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  /* touch + mobile gutter tokens (T1, T6, T7) */
+  --touch-min: 44px;
+  --gutter-mobile: 16px;
   --font-light: 300;
   --font-regular: 400;
   --font-medium: 500;
@@ -131,6 +137,8 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--cds-border-subtle-00);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
+  /* keep bar clear of the notch (T13) */
+  padding-top: env(safe-area-inset-top);
 }
 
 .topbar-inner {
@@ -1462,8 +1470,9 @@ select {
   color: var(--cds-text-primary);
   background-color: var(--cds-field-01);
   padding: 13px 16px;
-  font-size: 14px;
-  line-height: 20px;
+  /* 16px floor prevents iOS Safari auto-zoom on focus (T4) */
+  font-size: 16px;
+  line-height: 22px;
   transition: background 110ms ease, border-color 110ms ease;
 }
 
@@ -1846,11 +1855,14 @@ select:focus {
 }
 
 .tone-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--cds-border-subtle-01);
   background: var(--cds-layer-01);
   color: var(--cds-text-primary);
   border-radius: var(--radius-sm);
-  padding: 4px 12px;
+  padding: 6px 12px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
@@ -2542,6 +2554,34 @@ select:focus {
   line-height: 28px;
 }
 
+/* Touch ergonomics: enlarge hit areas only on coarse pointers, not by screen width (T6, T7) */
+@media (pointer: coarse) {
+  .tone-edit-btn,
+  .mini-action,
+  .feedback-btn {
+    min-height: var(--touch-min);
+  }
+
+  .history-delete-action,
+  .modal-close {
+    min-width: var(--touch-min);
+    min-height: var(--touch-min);
+  }
+}
+
+/* Pressed-state feedback replaces the removed native tap highlight (T11) */
+.btn-primary:active,
+.btn-secondary:active,
+.mini-action:active,
+.tone-edit-btn:active,
+.feedback-btn:active,
+.nav-cta:active,
+.nav-login:active,
+.secondary-results-toggle:active,
+.copy-btn:active {
+  transform: scale(0.97);
+}
+
 @media (max-width: 1040px) {
   .hero-layout,
   .workspace-grid,
@@ -2597,36 +2637,30 @@ select:focus {
 }
 
 @media (max-width: 620px) {
+  /* Single root-level safety net instead of repeating it on every section (T3) */
   html,
-  body,
-  .page {
-    width: 100vw;
-    max-width: 100vw;
+  body {
     overflow-x: hidden;
   }
 
-  .topbar,
-  .hero-section,
-  .decoder-section,
-  .neuroscience-section,
-  .benefits-section,
-  .lenses-section,
-  .story-section,
-  .before-after-section,
-  .final-cta-section {
-    width: 100vw;
-    max-width: 100vw;
-    overflow-x: hidden;
-  }
-
+  /* min-width:0 keeps flex/grid children from overflowing; max-width is scoped to
+     replaced/media elements rather than a blanket `body *` (T3) */
   body * {
     min-width: 0;
+  }
+
+  img,
+  svg,
+  video,
+  iframe,
+  canvas {
     max-width: 100%;
   }
 
   .shell {
-    width: calc(100vw - 24px);
-    max-width: calc(100vw - 24px);
+    /* 16px gutter each side instead of 12px, plus landscape safe-area (T1) */
+    width: calc(100vw - var(--gutter-mobile) * 2 - env(safe-area-inset-left) - env(safe-area-inset-right));
+    max-width: calc(100vw - var(--gutter-mobile) * 2 - env(safe-area-inset-left) - env(safe-area-inset-right));
     margin-right: auto;
     margin-left: auto;
   }
@@ -2840,5 +2874,68 @@ select:focus {
 
   .copy-btn {
     align-self: stretch;
+  }
+}
+
+/* ── Mobile-native patterns: sheet, sticky CTA, readable body (T5, T8, T9, T10, T14) ── */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@media (max-width: 620px) {
+  /* T5 — larger body text for mobile reading comfort */
+  body {
+    font-size: 15px;
+    line-height: 24px;
+  }
+
+  /* T14 — drop desktop fixed heights that create a tall empty box under the form */
+  .empty-state {
+    min-height: 320px;
+  }
+
+  /* T10 — wrap nav actions instead of hiding the CTA behind a horizontal scroll */
+  .nav-actions {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  /* T9 — pin the primary decode CTA to the bottom as a sticky action bar */
+  .decoder-page .form-grid > .btn-wide {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    padding-bottom: calc(13px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 24px rgb(0 0 0 / 10%);
+  }
+
+  /* T8 — auth modal resolves to a bottom sheet with a drag handle */
+  .modal-backdrop {
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .auth-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 88vh;
+    overflow-y: auto;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-top: var(--cds-spacing-07);
+    padding-bottom: calc(var(--cds-spacing-06) + env(safe-area-inset-bottom));
+    animation: sheet-up 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .auth-modal::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--cds-border-subtle-01);
   }
 }

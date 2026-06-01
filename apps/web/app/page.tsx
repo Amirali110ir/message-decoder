@@ -12,7 +12,7 @@ import {
   Sparkles
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { notifyTelegramOtp, requestOtp, verifyOtp } from "../lib/api";
 
 const benefitCards = [
@@ -64,6 +64,45 @@ export default function Home() {
   const [heroMessage, setHeroMessage] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!authModalOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(
+        modalRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+        ) ?? []
+      );
+    focusables()[0]?.focus();
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAuthModalOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previouslyFocused?.focus();
+    };
+  }, [authModalOpen]);
 
   function openAuthFlow(mode: "login" | "signup") {
     setAuthMode(mode);
@@ -145,8 +184,8 @@ export default function Home() {
         <div className="shell hero-layout">
           <div className="hero-copy">
             <div className="trust-strip">
-              <span>تحلیل اول بدون ورود</span>
-              <span>رایگان، بدون ثبت‌نام</span>
+              <span>تحلیل اول رایگان و بدون ثبت‌نام</span>
+              <span>خصوصی؛ متن حساس ذخیره نمی‌شود</span>
             </div>
             <h1>پیام مبهم را بفهمید؛ با اضطراب کمتر جواب بدهید.</h1>
             <p className="hero-subtitle">
@@ -200,8 +239,21 @@ export default function Home() {
               <div className="phone-status">
                 <span className="phone-time">09:41</span>
                 <div className="phone-status-icons">
-                  <span className="phone-signal">📶</span>
-                  <span className="phone-battery">🔋</span>
+                  <span className="phone-signal" aria-hidden="true">
+                    <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor">
+                      <rect x="0" y="8" width="3" height="3" rx="0.5" />
+                      <rect x="4.5" y="5.5" width="3" height="5.5" rx="0.5" />
+                      <rect x="9" y="3" width="3" height="8" rx="0.5" />
+                      <rect x="13.5" y="0" width="3" height="11" rx="0.5" />
+                    </svg>
+                  </span>
+                  <span className="phone-battery" aria-hidden="true">
+                    <svg width="25" height="12" viewBox="0 0 25 12" fill="none">
+                      <rect x="0.5" y="0.5" width="21" height="11" rx="3" stroke="currentColor" opacity="0.4" />
+                      <rect x="2" y="2" width="18" height="8" rx="1.5" fill="currentColor" />
+                      <rect x="23" y="4" width="1.5" height="4" rx="0.75" fill="currentColor" opacity="0.4" />
+                    </svg>
+                  </span>
                 </div>
               </div>
               <div className="chat-screen ios-chat">
@@ -353,8 +405,14 @@ export default function Home() {
       </section>
 
       {authModalOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="ورود و دریافت اعتبار">
-          <div className="auth-modal">
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="ورود و دریافت اعتبار"
+          onClick={() => setAuthModalOpen(false)}
+        >
+          <div className="auth-modal" ref={modalRef} onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setAuthModalOpen(false)} aria-label="بستن">
               ×
             </button>
@@ -381,6 +439,8 @@ export default function Home() {
               <div className="auth-row">
                 <input
                   type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   placeholder="09123456789"
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
@@ -394,6 +454,8 @@ export default function Home() {
                 <div className="auth-row">
                   <input
                     type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
                     placeholder="کد ورود"
                     value={otp}
                     onChange={(event) => setOtp(event.target.value)}
