@@ -352,6 +352,14 @@ export default function AdminPage() {
               <Metric title="تحلیل تلگرام" value={telegramMetrics?.free_decodes ?? 0} />
               <Metric title="نرخ تبدیل" value={`${Math.round(metrics.conversion * 100)}٪`} />
               <Metric title="نرخ کپی پاسخ" value={`${Math.round(metrics.copy_rate * 100)}٪`} />
+              <Metric
+                title="ماندگاری D7"
+                value={`${Math.round((metrics.retention?.d7_retention.rate ?? 0) * 100)}٪ (${metrics.retention?.d7_retention.retained ?? 0}/${metrics.retention?.d7_retention.cohort ?? 0})`}
+              />
+              <Metric
+                title="نرخ بازگشت هفتگی"
+                value={`${Math.round((metrics.retention?.weekly_return.rate ?? 0) * 100)}٪ (${metrics.retention?.weekly_return.returned ?? 0}/${metrics.retention?.weekly_return.cohort ?? 0})`}
+              />
               <Metric title="ترکیب لنزها" value={metrics.by_lens.map((item) => `${item.dominant_lens}: ${item.count}`).join("، ") || "هنوز داده‌ای نیست"} />
               <Metric title="برچسب‌های ایمنی" value={metrics.safety.map((item) => `${item.safety_label}: ${item.count}`).join("، ") || "هنوز داده‌ای نیست"} />
             </div>

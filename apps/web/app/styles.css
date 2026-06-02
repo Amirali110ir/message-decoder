@@ -51,7 +51,7 @@
   --radius-pill: 999px;
   /* touch + mobile gutter tokens (T1, T6, T7) */
   --touch-min: 44px;
-  --gutter-mobile: 16px;
+  --gutter-mobile: 20px;
   --font-light: 300;
   --font-regular: 400;
   --font-medium: 500;
@@ -2703,10 +2703,31 @@ select:focus {
   }
 
   .hero-copy h1 {
-    font-size: 32px;
-    line-height: 40px;
+    font-size: 27px;
+    line-height: 34px;
     max-width: 100%;
     overflow-wrap: anywhere;
+  }
+
+  /* Lighter, more compact trust pills instead of full-width alert-style bars */
+  .trust-strip {
+    gap: 6px;
+  }
+
+  .trust-strip span {
+    border-right-width: 2px;
+    padding: 4px 10px;
+    font-size: 11px;
+    border-radius: var(--radius-md);
+  }
+
+  /* Tighten the marketing hero so the input + CTA sit higher on screen */
+  .hero-section {
+    padding: 28px 0 40px;
+  }
+
+  .hero-copy {
+    gap: 14px;
   }
 
   .section-heading h1,

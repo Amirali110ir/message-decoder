@@ -385,6 +385,10 @@ export function adminMetrics(token: string) {
     copy_rate: number;
     by_lens: { dominant_lens: string; count: number }[];
     safety: { safety_label: string; count: number }[];
+    retention?: {
+      d7_retention: { cohort: number; retained: number; rate: number };
+      weekly_return: { cohort: number; returned: number; rate: number };
+    };
   }>("/admin/metrics", {
     headers: { "X-Admin-Token": token }
   });
