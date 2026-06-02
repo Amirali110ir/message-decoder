@@ -1,12 +1,11 @@
-# Base image pulled from Liara's Docker mirror to avoid Docker Hub stalls
-FROM docker.liara.ir/python:3.12-slim
+FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install Python dependencies from Liara's PIP mirror
+# Configure Liara's official PIP mirror
 ENV PIP_INDEX_URL=https://package-mirror.liara.ir/repository/pypi/simple
-ENV PIP_TRUSTED_HOST=package-mirror.liara.ir
+# Install Python dependencies
 COPY apps/api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
