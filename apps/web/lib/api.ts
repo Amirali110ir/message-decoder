@@ -22,6 +22,7 @@ export type FreeDecodeResponse = {
   safety_label: string;
   contact_id?: string | null;
   contact_profile_summary?: string | null;
+  clarifying_question?: string | null;
   prompt_version: string;
   model_version: string;
   free_output?: {
@@ -38,6 +39,8 @@ export type FreeDecodeResponse = {
     recommended_direction: string;
     confidence: string;
     alternative_read: string;
+    insight_line?: string | null;
+    situation_arc?: string | null;
     privacy_warning?: string | null;
     cta: string;
   } | null;
@@ -55,7 +58,13 @@ export type PaidDecodeResponse = {
   paid_output: {
     deep_read: string;
     personalization_note?: string | null;
-    reply_options: { label: string; text: string; why_it_works: string; reaction_prediction?: string | null }[];
+    reply_options: {
+      label: string;
+      text: string;
+      why_it_works: string;
+      reaction_prediction?: string | null;
+      reaction_forecast?: { likely_reaction: string; reason: string; risk_level: "کم" | "متوسط" | "زیاد" } | null;
+    }[];
     words_to_avoid: string[];
     safe_opening_line: string;
     copy_ready_reply: string;
@@ -143,6 +152,9 @@ export function freeDecode(input: {
   relationship_type: RelationshipType;
   user_goal: UserGoal;
   optional_context?: string;
+  episode_background?: string;
+  their_behavior?: string;
+  recent_messages?: string[];
   privacy_consent: "none" | "history" | "anonymized";
   contact_id?: string | null;
   contact_name?: string | null;

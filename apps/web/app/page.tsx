@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { notifyTelegramOtp, requestOtp, verifyOtp } from "../lib/api";
+import { faNum } from "../lib/format";
 
 const benefitCards = [
   {
@@ -166,7 +167,7 @@ export default function Home() {
             {credits > 0 && (
               <div className="credit-badge">
                 <Sparkles size={14} />
-                <span>{credits} اعتبار</span>
+                <span>{faNum(credits)} اعتبار</span>
               </div>
             )}
             <button className="nav-login" onClick={() => openAuthFlow("login")}>

@@ -52,6 +52,22 @@
   /* touch + mobile gutter tokens (T1, T6, T7) */
   --touch-min: 44px;
   --gutter-mobile: 20px;
+  /* type scale primitives (T22) — every font-size references one of these */
+  --fs-10: 10px;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-17: 17px;
+  --fs-18: 18px;
+  --fs-20: 20px;
+  --fs-22: 22px;
+  --fs-24: 24px;
+  --fs-27: 27px;
+  --fs-28: 28px;
+  --fs-32: 32px;
   --font-light: 300;
   --font-regular: 400;
   --font-medium: 500;
@@ -76,7 +92,7 @@ body {
   color: var(--cds-text-primary);
   direction: rtl;
   font-family: "IRANSans", "IRANSansX", "Vazirmatn", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: var(--font-regular);
   line-height: 20px;
   overflow-x: hidden;
@@ -187,14 +203,14 @@ textarea:focus-visible {
 
 .brand-title {
   color: var(--cds-text-primary);
-  font-size: 16px;
+  font-size: var(--fs-16);
   font-weight: var(--font-bold);
   line-height: 22px;
 }
 
 .brand-subtitle {
   color: var(--cds-text-secondary);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 16px;
 }
 
@@ -218,7 +234,7 @@ textarea:focus-visible {
   border-radius: var(--radius-sm);
   padding: 10px 15px;
   color: var(--cds-text-primary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: var(--font-bold);
   line-height: 18px;
   white-space: nowrap;
@@ -294,7 +310,7 @@ textarea:focus-visible {
   align-items: center;
   min-height: 24px;
   color: var(--cds-support-info);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
@@ -316,7 +332,7 @@ textarea:focus-visible {
 .hero-subtitle {
   max-width: 720px;
   color: var(--cds-text-secondary);
-  font-size: 16px;
+  font-size: var(--fs-16);
   line-height: 28px;
 }
 
@@ -344,7 +360,7 @@ textarea:focus-visible {
   border-radius: var(--radius-sm);
   background: var(--cds-layer-01);
   color: var(--cds-text-primary);
-  font-size: 15px;
+  font-size: var(--fs-15);
   line-height: 26px;
   resize: vertical;
   direction: rtl;
@@ -376,7 +392,7 @@ textarea:focus-visible {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--cds-text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: border-color 110ms ease, color 110ms ease, background 110ms ease;
@@ -409,7 +425,7 @@ textarea:focus-visible {
   border-radius: var(--radius-sm);
   padding: 14px 16px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: var(--font-bold);
   line-height: 18px;
   transition: background 110ms ease, border-color 110ms ease, color 110ms ease;
@@ -519,7 +535,7 @@ textarea:focus-visible {
 
 .testimonial-chip p {
   color: var(--cds-text-secondary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 24px;
 }
 
@@ -527,7 +543,7 @@ textarea:focus-visible {
   display: block;
   margin-top: var(--cds-spacing-03);
   color: var(--cds-text-primary);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
@@ -613,7 +629,7 @@ textarea:focus-visible {
   justify-content: space-between;
   align-items: center;
   color: #1c1c1e;
-  font-size: 11px;
+  font-size: var(--fs-11);
   font-weight: 600;
   z-index: 55;
   pointer-events: none;
@@ -627,7 +643,7 @@ textarea:focus-visible {
 }
 
 .phone-signal, .phone-battery {
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 1;
 }
 
@@ -683,7 +699,7 @@ textarea:focus-visible {
   color: white;
   border-radius: 10px;
   padding: 2px 6px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   margin-right: 4px;
 }
 
@@ -704,11 +720,11 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: var(--fs-16);
 }
 
 .ios-name {
-  font-size: 10px;
+  font-size: var(--fs-10);
   font-weight: 500;
   margin-top: 2px;
 }
@@ -727,7 +743,7 @@ textarea:focus-visible {
   border-radius: 18px;
   padding: 11px 14px;
   color: #000000;
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 24px;
 }
 
@@ -812,7 +828,7 @@ textarea:focus-visible {
   display: block;
   margin-top: 4px;
   color: var(--cds-text-primary);
-  font-size: 20px;
+  font-size: var(--fs-20);
   font-weight: var(--font-bold);
   line-height: 28px;
 }
@@ -821,7 +837,7 @@ textarea:focus-visible {
 .safe-reply-card p {
   margin-top: var(--cds-spacing-03);
   color: var(--cds-text-secondary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 24px;
 }
 
@@ -849,7 +865,7 @@ textarea:focus-visible {
 
 .ios-add-btn {
   color: #c7c7cc;
-  font-size: 24px;
+  font-size: var(--fs-24);
   line-height: 1;
 }
 
@@ -867,7 +883,7 @@ textarea:focus-visible {
 
 .ios-placeholder {
   color: #c7c7cc;
-  font-size: 15px;
+  font-size: var(--fs-15);
 }
 
 .ios-mic {
@@ -903,7 +919,7 @@ textarea:focus-visible {
 }
 
 .keyboard-predictions span {
-  font-size: 15px;
+  font-size: var(--fs-15);
   color: #000;
   padding: 4px 8px;
 }
@@ -923,7 +939,7 @@ textarea:focus-visible {
   border-radius: 6px;
   box-shadow: 0 1px 1px rgba(0,0,0,0.3);
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 18px;
+  font-size: var(--fs-18);
   color: #000;
   flex: 1;
   max-width: 32px;
@@ -934,7 +950,7 @@ textarea:focus-visible {
 .ios-keyboard kbd.key-num,
 .ios-keyboard kbd.key-return {
   background: #b3b6bb;
-  font-size: 14px;
+  font-size: var(--fs-14);
   max-width: none;
   padding: 0 10px;
 }
@@ -973,7 +989,7 @@ textarea:focus-visible {
   padding: 8px 14px;
   color: #1c1c1e;
   background: #ffffff;
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 20px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
   opacity: 0;
@@ -1036,7 +1052,7 @@ textarea:focus-visible {
 
 .safe-reply-card span {
   color: var(--cds-support-success);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
@@ -1083,7 +1099,7 @@ textarea:focus-visible {
 .auth-modal-header p {
   margin-top: var(--cds-spacing-04);
   color: var(--cds-text-secondary);
-  font-size: 16px;
+  font-size: var(--fs-16);
   line-height: 28px;
 }
 
@@ -1148,7 +1164,7 @@ textarea:focus-visible {
 .premium-lock-details h3,
 .deep-results-title {
   color: var(--cds-text-primary);
-  font-size: 20px;
+  font-size: var(--fs-20);
   font-weight: var(--font-bold);
   line-height: 28px;
 }
@@ -1162,7 +1178,7 @@ textarea:focus-visible {
 .feedback-box > span,
 .section p {
   color: var(--cds-text-secondary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 24px;
 }
 
@@ -1244,7 +1260,7 @@ textarea:focus-visible {
   padding: 7px 10px;
   color: var(--cds-text-primary);
   background: var(--cds-layer-02);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
@@ -1282,13 +1298,13 @@ textarea:focus-visible {
 
 .selected-contact-note strong {
   color: var(--cds-text-primary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 20px;
 }
 
 .selected-contact-note span {
   color: var(--cds-text-secondary);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 20px;
 }
 
@@ -1308,13 +1324,13 @@ textarea:focus-visible {
 
 .relationship-thermometer strong {
   color: var(--cds-text-primary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 18px;
 }
 
 .relationship-thermometer span {
   color: var(--cds-text-secondary);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 20px;
 }
 
@@ -1342,7 +1358,7 @@ textarea:focus-visible {
   padding: var(--cds-spacing-04);
   color: var(--cds-text-secondary);
   background: var(--cds-layer-01);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 20px;
 }
 
@@ -1386,7 +1402,7 @@ textarea:focus-visible {
 }
 
 .history-row-main strong {
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 18px;
 }
 
@@ -1394,7 +1410,7 @@ textarea:focus-visible {
   overflow: hidden;
   max-width: 100%;
   color: var(--cds-text-secondary);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1438,7 +1454,7 @@ textarea:focus-visible {
 .ghost-toggle small {
   margin-top: 2px;
   color: var(--cds-text-secondary);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
 }
 
@@ -1454,7 +1470,7 @@ textarea:focus-visible {
   align-items: center;
   gap: var(--cds-spacing-03);
   color: var(--cds-text-primary);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
@@ -1471,7 +1487,7 @@ select {
   background-color: var(--cds-field-01);
   padding: 13px 16px;
   /* 16px floor prevents iOS Safari auto-zoom on focus (T4) */
-  font-size: 16px;
+  font-size: var(--fs-16);
   line-height: 22px;
   transition: background 110ms ease, border-color 110ms ease;
 }
@@ -1558,6 +1574,40 @@ select:focus {
   background: var(--cds-ghost-bg);
 }
 
+.clarifying-card {
+  border-right: 4px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.clarifying-card .btn-secondary {
+  margin-top: var(--cds-spacing-04);
+}
+
+.insight-card {
+  border-right: 4px solid #7c3aed;
+  background: rgba(124, 58, 237, 0.06);
+}
+.insight-card h3 {
+  color: #6d28d9;
+}
+
+.risk-chip {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-bottom: 4px;
+}
+.risk-chip.risk-کم { background: rgba(16, 185, 129, 0.15); color: #047857; }
+.risk-chip.risk-متوسط { background: rgba(245, 158, 11, 0.15); color: #b45309; }
+.risk-chip.risk-زیاد { background: rgba(239, 68, 68, 0.15); color: #b91c1c; }
+.reaction-reason {
+  display: block;
+  opacity: 0.8;
+  font-size: 0.85em;
+}
+
 .visual-signals {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
@@ -1609,13 +1659,13 @@ select:focus {
 
 .lens-donut-number {
   fill: var(--cds-text-primary);
-  font-size: 20px;
+  font-size: var(--fs-20);
   font-weight: var(--font-black);
 }
 
 .lens-donut-label {
   fill: var(--cds-text-secondary);
-  font-size: 11px;
+  font-size: var(--fs-11);
   font-weight: var(--font-bold);
 }
 
@@ -1631,7 +1681,7 @@ select:focus {
   gap: var(--cds-spacing-03);
   align-items: center;
   color: var(--cds-text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 18px;
 }
 
@@ -1671,13 +1721,13 @@ select:focus {
   justify-content: space-between;
   gap: var(--cds-spacing-04);
   color: var(--cds-text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 20px;
 }
 
 .tone-meter-meta strong {
   color: var(--cds-text-primary);
-  font-size: 18px;
+  font-size: var(--fs-18);
   line-height: 26px;
 }
 
@@ -1794,7 +1844,7 @@ select:focus {
   padding: var(--cds-spacing-05);
   color: var(--cds-text-primary);
   background: var(--cds-layer-01);
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: var(--font-medium);
   line-height: 24px;
   white-space: pre-wrap;
@@ -1822,13 +1872,13 @@ select:focus {
 
 .reaction-simulator strong {
   color: var(--cds-text-primary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 18px;
 }
 
 .reaction-simulator span {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 20px;
 }
 
@@ -1850,7 +1900,7 @@ select:focus {
 }
 
 .tone-edit-label {
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--cds-text-secondary);
 }
 
@@ -1863,7 +1913,7 @@ select:focus {
   color: var(--cds-text-primary);
   border-radius: var(--radius-sm);
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-family: inherit;
   cursor: pointer;
 }
@@ -1890,7 +1940,7 @@ select:focus {
 
 .tone-edit-result-badge {
   align-self: flex-start;
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-medium);
   color: var(--cds-support-success);
 }
@@ -1907,7 +1957,7 @@ select:focus {
   border-radius: var(--radius-sm);
   padding: var(--cds-spacing-04);
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 24px;
   resize: vertical;
   background: var(--cds-field-01);
@@ -1943,7 +1993,7 @@ select:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 14px;
+  font-size: var(--fs-14);
 }
 
 .before-send-list {
@@ -1952,7 +2002,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 20px;
   color: var(--cds-text-secondary);
 }
@@ -1973,7 +2023,7 @@ select:focus {
   padding: 6px 10px;
   color: #a2191f;
   background: var(--cds-support-error-light);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
@@ -1987,7 +2037,7 @@ select:focus {
   border: 1px solid var(--cds-border-subtle-00);
   border-radius: var(--radius-sm);
   padding: var(--cds-spacing-04) var(--cds-spacing-05);
-  font-size: 14px;
+  font-size: var(--fs-14);
   font-weight: var(--font-bold);
   line-height: 20px;
 }
@@ -2039,7 +2089,7 @@ select:focus {
   border-radius: var(--radius-sm);
   color: var(--cds-text-primary);
   background: var(--cds-layer-02);
-  font-size: 24px;
+  font-size: var(--fs-24);
   line-height: 1;
 }
 
@@ -2054,7 +2104,7 @@ select:focus {
 
 .auth-modal-header span {
   color: var(--cds-support-info);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
@@ -2084,7 +2134,7 @@ select:focus {
 
 .eyebrow {
   color: var(--cds-support-info);
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: var(--font-bold);
   line-height: 18px;
 }
@@ -2098,7 +2148,7 @@ select:focus {
 .onboarding-copy p {
   max-width: 720px;
   color: var(--cds-text-secondary);
-  font-size: 17px;
+  font-size: var(--fs-17);
   line-height: 30px;
 }
 
@@ -2149,7 +2199,7 @@ select:focus {
 
 .referral-box strong {
   color: var(--cds-text-primary);
-  font-size: 28px;
+  font-size: var(--fs-28);
   line-height: 34px;
   letter-spacing: 0;
 }
@@ -2157,7 +2207,7 @@ select:focus {
 .referral-box span {
   overflow-wrap: anywhere;
   color: var(--cds-text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 20px;
 }
 
@@ -2184,7 +2234,7 @@ select:focus {
 
 .story-copy p {
   color: var(--cds-text-secondary);
-  font-size: 16px;
+  font-size: var(--fs-16);
   line-height: 30px;
 }
 
@@ -2218,7 +2268,7 @@ select:focus {
 .lens-card p {
   margin-top: var(--cds-spacing-04);
   color: var(--cds-text-secondary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 24px;
 }
 
@@ -2260,14 +2310,14 @@ select:focus {
 .comparison-card p {
   margin: var(--cds-spacing-06) 0;
   color: var(--cds-text-primary);
-  font-size: 18px;
+  font-size: var(--fs-18);
   font-weight: var(--font-bold);
   line-height: 30px;
 }
 
 .comparison-card strong {
   color: var(--cds-text-secondary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 20px;
 }
 
@@ -2300,7 +2350,7 @@ select:focus {
   margin: 0 auto;
   color: var(--cds-text-secondary);
   text-align: center;
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 20px;
 }
 
@@ -2348,20 +2398,20 @@ select:focus {
 
 .admin-login-copy span {
   color: var(--cds-support-info);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
   line-height: 16px;
 }
 
 .admin-login-copy h1 {
   color: var(--cds-text-primary);
-  font-size: 28px;
+  font-size: var(--fs-28);
   line-height: 36px;
 }
 
 .admin-login-copy p {
   color: var(--cds-text-secondary);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 24px;
 }
 
@@ -2394,13 +2444,13 @@ select:focus {
 .admin-list-heading h2 {
   margin-top: var(--cds-spacing-02);
   color: var(--cds-text-primary);
-  font-size: 22px;
+  font-size: var(--fs-22);
   line-height: 30px;
 }
 
 .admin-list-heading > span {
   color: var(--cds-text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 20px;
 }
 
@@ -2415,7 +2465,7 @@ select:focus {
   min-width: 980px;
   border-collapse: collapse;
   color: var(--cds-text-primary);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 20px;
 }
 
@@ -2430,7 +2480,7 @@ select:focus {
 .admin-table th {
   color: var(--cds-text-secondary);
   background: var(--cds-layer-01);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: var(--font-bold);
 }
 
@@ -2449,7 +2499,7 @@ select:focus {
   padding: 2px 8px;
   color: var(--cds-text-secondary);
   background: var(--cds-layer-01);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 16px;
   white-space: nowrap;
 }
@@ -2505,7 +2555,7 @@ select:focus {
 
 .admin-event-title span {
   color: var(--cds-text-secondary);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 .payment-callback-card {
@@ -2521,13 +2571,13 @@ select:focus {
 
 .payment-callback-card h1 {
   color: var(--cds-text-primary);
-  font-size: 32px;
+  font-size: var(--fs-32);
   line-height: 40px;
 }
 
 .payment-callback-card p {
   color: var(--cds-text-secondary);
-  font-size: 15px;
+  font-size: var(--fs-15);
   line-height: 26px;
 }
 
@@ -2543,13 +2593,13 @@ select:focus {
 
 .section h3 {
   margin-bottom: var(--cds-spacing-03);
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 20px;
 }
 
 .section p {
   color: var(--cds-text-primary);
-  font-size: 20px;
+  font-size: var(--fs-20);
   font-weight: var(--font-bold);
   line-height: 28px;
 }
@@ -2699,11 +2749,11 @@ select:focus {
   .account-badge {
     min-height: 36px;
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: var(--fs-12);
   }
 
   .hero-copy h1 {
-    font-size: 27px;
+    font-size: var(--fs-27);
     line-height: 34px;
     max-width: 100%;
     overflow-wrap: anywhere;
@@ -2717,7 +2767,7 @@ select:focus {
   .trust-strip span {
     border-right-width: 2px;
     padding: 4px 10px;
-    font-size: 11px;
+    font-size: var(--fs-11);
     border-radius: var(--radius-md);
   }
 
@@ -2748,7 +2798,7 @@ select:focus {
 
   .hero-subtitle,
   .story-copy p {
-    font-size: 14px;
+    font-size: var(--fs-14);
     line-height: 24px;
   }
 
@@ -2807,7 +2857,7 @@ select:focus {
   .ios-keyboard kbd {
     max-width: none;
     padding: 0 2px;
-    font-size: 15px;
+    font-size: var(--fs-15);
   }
 
   .phone-frame:hover {
@@ -2875,7 +2925,7 @@ select:focus {
   .story-layout h2,
   .science-layout h2,
   .final-cta h2 {
-    font-size: 28px;
+    font-size: var(--fs-28);
     line-height: 36px;
   }
 
@@ -2907,7 +2957,7 @@ select:focus {
 @media (max-width: 620px) {
   /* T5 — larger body text for mobile reading comfort */
   body {
-    font-size: 15px;
+    font-size: var(--fs-15);
     line-height: 24px;
   }
 

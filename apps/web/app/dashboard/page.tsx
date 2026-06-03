@@ -4,6 +4,7 @@ import { AlertCircle, Check, Copy, History, MessageSquareText, RefreshCw, Sparkl
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Contact, DecodeHistoryItem, getContacts, getCredits, getDecodeHistory, getReferral } from "../../lib/api";
+import { faNum } from "../../lib/format";
 
 type Referral = { referral_code: string; referral_url: string; reward_credits: number };
 
@@ -118,15 +119,15 @@ export default function DashboardPage() {
                 </div>
                 <div className="section">
                   <h3>اعتبار فعلی</h3>
-                  <p>{loading ? "..." : `${credits ?? 0} اعتبار`}</p>
+                  <p>{loading ? "..." : `${faNum(credits ?? 0)} اعتبار`}</p>
                 </div>
                 <div className="section">
                   <h3>تحلیل‌های ذخیره‌شده</h3>
-                  <p>{history.length}</p>
+                  <p>{faNum(history.length)}</p>
                 </div>
                 <div className="section">
                   <h3>مخاطب‌ها</h3>
-                  <p>{contacts.length}</p>
+                  <p>{faNum(contacts.length)}</p>
                 </div>
               </div>
 
@@ -212,7 +213,7 @@ export default function DashboardPage() {
                       <div className="history-row" key={contact.id}>
                         <div className="history-row-main">
                           <strong>{contact.name} · {contact.relationship_type}</strong>
-                          <span>{contact.memory_summary || contact.profile_summary || `${contact.interaction_count} تحلیل ذخیره‌شده`}</span>
+                          <span>{contact.memory_summary || contact.profile_summary || `${faNum(contact.interaction_count)} تحلیل ذخیره‌شده`}</span>
                         </div>
                       </div>
                     ))}

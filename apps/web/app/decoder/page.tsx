@@ -35,6 +35,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { Contact, DecodeHistoryItem, RelationshipThermometer } from "../../lib/api";
 import type { ToneTarget, ToneEditResponse, BeforeSendResponse } from "../../lib/api";
+import { faNum } from "../../lib/format";
 import {
   beforeSendCheck,
   copyEvent,
@@ -123,11 +124,24 @@ const playbookTemplates = [
   }
 ] as const;
 
+// Mirror the backend hard caps (T1.7 / T10.1): max 5 recent messages, 500 chars each.
+function parseRecentMessages(raw: string): string[] | undefined {
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trim().slice(0, 500))
+    .filter(Boolean)
+    .slice(0, 5);
+  return lines.length ? lines : undefined;
+}
+
 export default function DecoderPage() {
   const [message, setMessage] = useState("");
   const [relationship, setRelationship] = useState("romantic");
   const [goal, setGoal] = useState("avoid_needy");
   const [context, setContext] = useState("");
+  const [episodeBackground, setEpisodeBackground] = useState("");
+  const [theirBehavior, setTheirBehavior] = useState("");
+  const [recentMessages, setRecentMessages] = useState("");
   const [consent, setConsent] = useState<"none" | "history" | "anonymized">("none");
   const [ghostMode, setGhostMode] = useState(false);
   const [freeResult, setFreeResult] = useState<FreeDecodeResponse | null>(null);
@@ -214,6 +228,9 @@ export default function DecoderPage() {
         relationship_type: relationship as never,
         user_goal: goal as never,
         optional_context: context || undefined,
+        episode_background: episodeBackground.trim() || undefined,
+        their_behavior: theirBehavior.trim() || undefined,
+        recent_messages: parseRecentMessages(recentMessages),
         privacy_consent: ghostMode ? "none" : consent,
         contact_id: selectedContactId || undefined,
         contact_name: !selectedContactId && contactName.trim() ? contactName.trim() : undefined,
@@ -329,7 +346,13 @@ export default function DecoderPage() {
             message_text: message,
             relationship_type: relationship as never,
             user_goal: goal as never,
-            optional_context: context.trim() || undefined
+            // Ghost paid has no structured episode field, so fold it into context.
+            optional_context: [
+              context.trim(),
+              episodeBackground.trim() && `پیشینه/رابطه: ${episodeBackground.trim()}`,
+              theirBehavior.trim() && `رفتار طرف مقابل: ${theirBehavior.trim()}`,
+              parseRecentMessages(recentMessages)?.length && `چند پیامِ آخر: ${parseRecentMessages(recentMessages)!.join(" | ")}`
+            ].filter(Boolean).join("\n") || undefined
           })
         : await paidDecode(token, freeResult.decode_id);
       setPaidResult(result);
@@ -632,7 +655,7 @@ export default function DecoderPage() {
                 </div>
                 <div className="credit-badge">
                   <Zap size={14} />
-                  <span>{credits} اعتبار</span>
+                  <span>{faNum(credits)} اعتبار</span>
                 </div>
               </>
             ) : (
@@ -747,6 +770,42 @@ export default function DecoderPage() {
 
                   <div className="field-group">
                     <label className="field-label">
+                      <span>قبلش چه شد؟ (اختیاری)</span>
+                    </label>
+                    <input
+                      value={episodeBackground}
+                      onChange={(event) => setEpisodeBackground(event.target.value)}
+                      placeholder="مثلاً: دو سال باهم بودیم، یه ماهه سرد شده."
+                      maxLength={1000}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label">
+                      <span>طرف مقابل چطور رفتار کرد؟ (اختیاری)</span>
+                    </label>
+                    <input
+                      value={theirBehavior}
+                      onChange={(event) => setTheirBehavior(event.target.value)}
+                      placeholder="مثلاً: تا صبح آنلاین بود ولی جواب نداد."
+                      maxLength={1000}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label">
+                      <span>چند پیامِ آخر (اختیاری، هر خط یک پیام)</span>
+                    </label>
+                    <textarea
+                      value={recentMessages}
+                      onChange={(event) => setRecentMessages(event.target.value)}
+                      placeholder={"هر پیام را در یک خط بنویس\nحداکثر ۵ پیامِ آخر استفاده می‌شود"}
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label">
                       <EyeOff size={16} />
                       <span>حریم خصوصی</span>
                     </label>
@@ -803,7 +862,7 @@ export default function DecoderPage() {
                       <option value="">بدون مخاطب ذخیره‌شده</option>
                       {contacts.map((contact) => (
                         <option value={contact.id} key={contact.id}>
-                          {contact.name} · {contact.interaction_count} تحلیل
+                          {contact.name} · {faNum(contact.interaction_count)} تحلیل
                         </option>
                       ))}
                     </select>
@@ -822,7 +881,7 @@ export default function DecoderPage() {
                         <div className="thermometer-bars">
                           <span>گرمی رابطه</span>
                           <div className="mini-meter"><i style={{ width: `${relationshipThermometer.warmth_score}%` }} /></div>
-                          <span>روند تدافعی {relationshipThermometer.defensive_trend > 0 ? "+" : ""}{relationshipThermometer.defensive_trend}</span>
+                          <span>روند تدافعی {relationshipThermometer.defensive_trend > 0 ? "+" : ""}{faNum(relationshipThermometer.defensive_trend)}</span>
                         </div>
                       </div>
                     )}
@@ -967,6 +1026,23 @@ export default function DecoderPage() {
                     <>
                       <VisualSignals output={freeResult.free_output} />
 
+                      {freeResult.clarifying_question && (
+                        <div className="result-card clarifying-card">
+                          <h3>برای تحلیل دقیق‌تر، یک سؤال</h3>
+                          <p>{freeResult.clarifying_question}</p>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => {
+                              setShowAdvancedInputs(true);
+                              messageInputRef.current?.scrollIntoView({ behavior: "smooth" });
+                            }}
+                          >
+                            جوابش را در «قبلش چه شد؟» بنویس و دوباره تحلیل کن
+                          </button>
+                        </div>
+                      )}
+
                       {freeResultGhost && (
                         <div className="result-card ghost-result-card">
                           <h3>این تحلیل در حالت شبح بود</h3>
@@ -992,6 +1068,13 @@ export default function DecoderPage() {
                         )}
                       </div>
 
+                      {freeResult.free_output.insight_line && (
+                        <div className="result-card insight-card">
+                          <h3>نکته‌ای که شاید خودت ندیده باشی</h3>
+                          <p>{freeResult.free_output.insight_line}</p>
+                        </div>
+                      )}
+
                       <div className="result-card warning-card">
                         <h3>اگر عجولانه جواب دهید</h3>
                         <p>{freeResult.free_output.conversation_risk}</p>
@@ -1012,6 +1095,13 @@ export default function DecoderPage() {
 
                       {showSecondaryResults && (
                         <div className="secondary-results">
+                          {freeResult.free_output.situation_arc && (
+                            <div className="result-card">
+                              <h3>قوس ماجرا: کجا اوضاع تغییر کرد</h3>
+                              <p>{freeResult.free_output.situation_arc}</p>
+                            </div>
+                          )}
+
                           <div className="result-card">
                             <h3>چرا این برداشت محتمل است؟</h3>
                             <p>{freeResult.free_output.why_this_lens}</p>
@@ -1126,7 +1216,7 @@ export default function DecoderPage() {
                           )}
                           {token && myReferral && (
                             <div className="contact-empty-note">
-                              کد معرفی شما: <strong>{myReferral.referral_code}</strong> · هر شماره جدید با این کد، {myReferral.reward_credits} اعتبار برای شما فعال می‌کند.
+                              کد معرفی شما: <strong>{myReferral.referral_code}</strong> · هر شماره جدید با این کد، {faNum(myReferral.reward_credits)} اعتبار برای شما فعال می‌کند.
                             </div>
                           )}
                         </div>
@@ -1156,12 +1246,22 @@ export default function DecoderPage() {
                           <div className="reply-why">
                             <strong>چرا احتمالاً کم‌ریسک‌تر است:</strong> {reply.why_it_works}
                           </div>
-                          {reply.reaction_prediction && (
+                          {(reply.reaction_forecast || reply.reaction_prediction) && (
                             <div className="reaction-simulator">
                               <MessageCircle size={14} />
                               <div>
                                 <strong>شبیه‌ساز واکنش</strong>
-                                <span>{reply.reaction_prediction}</span>
+                                {reply.reaction_forecast ? (
+                                  <>
+                                    <span className={`risk-chip risk-${reply.reaction_forecast.risk_level}`}>
+                                      ریسک: {reply.reaction_forecast.risk_level}
+                                    </span>
+                                    <span>{reply.reaction_forecast.likely_reaction}</span>
+                                    <span className="reaction-reason">{reply.reaction_forecast.reason}</span>
+                                  </>
+                                ) : (
+                                  <span>{reply.reaction_prediction}</span>
+                                )}
                               </div>
                             </div>
                           )}
@@ -1257,7 +1357,7 @@ export default function DecoderPage() {
                           <div className={`before-send-result risk-${beforeSendResult.risk_level === "زیاد" ? "high" : beforeSendResult.risk_level === "متوسط" ? "mid" : "low"}`}>
                             <div className="before-send-meta">
                               <strong>ریسک: {beforeSendResult.risk_level}</strong>
-                              <span>{beforeSendResult.risk_score}٪</span>
+                              <span>{faNum(beforeSendResult.risk_score)}٪</span>
                             </div>
                             <p>{beforeSendResult.summary}</p>
                             {beforeSendResult.flags.length > 0 && (
@@ -1371,7 +1471,7 @@ function VisualSignals({ output }: { output: FreeOutput }) {
           </div>
           <div className="tone-meter-meta">
             <strong>{toneStress.label}</strong>
-            <span>{toneStress.intensity}٪ فشار مکالمه</span>
+            <span>{faNum(toneStress.intensity)}٪ فشار مکالمه</span>
           </div>
         </div>
       </div>
@@ -1407,7 +1507,7 @@ function LensDonut({ mix, dominantKey }: { mix: Required<FreeOutput>["lens_mix"]
           />
         ))}
         <text x="70" y="66" textAnchor="middle" className="lens-donut-number">
-          {mix[dominantKey as keyof typeof mix]}٪
+          {faNum(mix[dominantKey as keyof typeof mix])}٪
         </text>
         <text x="70" y="84" textAnchor="middle" className="lens-donut-label">
           لنز غالب
@@ -1419,7 +1519,7 @@ function LensDonut({ mix, dominantKey }: { mix: Required<FreeOutput>["lens_mix"]
           <div className="lens-mix-row" key={key}>
             <span className="lens-dot" style={{ backgroundColor: lensMeta[key].color }} />
             <span>{lensMeta[key].label}</span>
-            <strong>{mix[key]}٪</strong>
+            <strong>{faNum(mix[key])}٪</strong>
           </div>
         ))}
       </div>
