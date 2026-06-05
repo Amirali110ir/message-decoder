@@ -401,6 +401,12 @@ export function adminMetrics(token: string) {
       d7_retention: { cohort: number; retained: number; rate: number };
       weekly_return: { cohort: number; returned: number; rate: number };
     };
+    frequency?: {
+      active_users: number;
+      avg_actions_per_user: number;
+      multi_action_rate: number;
+      before_send_checks: number;
+    };
   }>("/admin/metrics", {
     headers: { "X-Admin-Token": token }
   });
