@@ -88,3 +88,20 @@
 - `apps/web/app/layout.tsx` — `viewport-fit=cover`.
 - `apps/web/app/page.tsx`, `decoder/page.tsx`, `dashboard/page.tsx`, `signup/page.tsx` — autofill، focus-trap، دکمهٔ فعال، ارقام فارسی.
 - `apps/web/lib/format.ts` — هلپرِ `faNum` (جدید).
+
+---
+
+## ۶. وصلهٔ `0.2.1` — رفعِ باگِ gutterِ موبایل (hotfix)
+
+**مسئله:** روی موبایلِ production، محتوا همچنان به لبه‌ها می‌چسبید با وجودِ توکنِ ۲۰px.
+**ریشه:** قاعدهٔ `.shell` از `width: calc(100vw − … − env(safe-area-inset-left) − env(safe-area-inset-right))` استفاده می‌کرد. `env()` **بدونِ مقدارِ fallback** وقتی مرورگر safe-area را تعریف‌نشده ببیند، کلِ عبارتِ `calc` را **invalid** می‌کند → `width` به `auto` برمی‌گردد → `.shell` تمامِ عرض را می‌گیرد → **gutter صفر**.
+**رفع:** gutter به مدلِ **padding** منتقل شد (با `box-sizing: border-box`) و به همهٔ `env()`ها fallbackِ `0px` داده شد:
+```css
+.shell {
+  width: 100%;
+  padding-left:  max(var(--gutter-mobile), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--gutter-mobile), env(safe-area-inset-right, 0px));
+}
+```
+این الگو در برابرِ نبودِ safe-area و رفتارِ scrollbarِ `100vw` مقاوم است.
+**تأیید:** اندازه‌گیریِ زنده در ۴۱۲px → دقیقاً ۲۰px از هر طرف، سرریزِ افقی صفر.

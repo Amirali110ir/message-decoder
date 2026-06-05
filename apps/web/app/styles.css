@@ -154,7 +154,7 @@ textarea:focus-visible {
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
   /* keep bar clear of the notch (T13) */
-  padding-top: env(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .topbar-inner {
@@ -2708,9 +2708,13 @@ select:focus {
   }
 
   .shell {
-    /* 16px gutter each side instead of 12px, plus landscape safe-area (T1) */
-    width: calc(100vw - var(--gutter-mobile) * 2 - env(safe-area-inset-left) - env(safe-area-inset-right));
-    max-width: calc(100vw - var(--gutter-mobile) * 2 - env(safe-area-inset-left) - env(safe-area-inset-right));
+    /* Gutter via padding (box-sizing: border-box) — robust vs the brittle
+       width: calc(100vw - …) approach, which collapsed to full width when
+       env()/100vw resolved oddly. max() also honors a landscape notch (T1). */
+    width: 100%;
+    max-width: 100%;
+    padding-left: max(var(--gutter-mobile), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--gutter-mobile), env(safe-area-inset-right, 0px));
     margin-right: auto;
     margin-left: auto;
   }
@@ -2977,7 +2981,7 @@ select:focus {
     position: sticky;
     bottom: 0;
     z-index: 20;
-    padding-bottom: calc(13px + env(safe-area-inset-bottom));
+    padding-bottom: calc(13px + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -8px 24px rgb(0 0 0 / 10%);
   }
 
@@ -2994,7 +2998,7 @@ select:focus {
     overflow-y: auto;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     padding-top: var(--cds-spacing-07);
-    padding-bottom: calc(var(--cds-spacing-06) + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--cds-spacing-06) + env(safe-area-inset-bottom, 0px));
     animation: sheet-up 240ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
