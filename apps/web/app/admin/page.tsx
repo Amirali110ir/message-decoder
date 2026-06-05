@@ -360,6 +360,14 @@ export default function AdminPage() {
                 title="نرخ بازگشت هفتگی"
                 value={`${Math.round((metrics.retention?.weekly_return.rate ?? 0) * 100)}٪ (${metrics.retention?.weekly_return.returned ?? 0}/${metrics.retention?.weekly_return.cohort ?? 0})`}
               />
+              <Metric
+                title="تکرار استفاده (میانگین اکشن/کاربر)"
+                value={`${(metrics.frequency?.avg_actions_per_user ?? 0).toFixed(1)} (چنداکشنی: ${Math.round((metrics.frequency?.multi_action_rate ?? 0) * 100)}٪)`}
+              />
+              <Metric
+                title="بررسی‌های قبل از ارسال"
+                value={`${metrics.frequency?.before_send_checks ?? 0}`}
+              />
               <Metric title="ترکیب لنزها" value={metrics.by_lens.map((item) => `${item.dominant_lens}: ${item.count}`).join("، ") || "هنوز داده‌ای نیست"} />
               <Metric title="برچسب‌های ایمنی" value={metrics.safety.map((item) => `${item.safety_label}: ${item.count}`).join("، ") || "هنوز داده‌ای نیست"} />
             </div>

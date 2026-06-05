@@ -12,6 +12,7 @@ node_modules/
 dist/
 build/
 coverage/
+apps/web/out/
 
 .gstack/
 .vercel
