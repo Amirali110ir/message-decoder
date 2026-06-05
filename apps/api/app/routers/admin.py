@@ -20,6 +20,7 @@ from app.schemas import (
     AdminUserListOut,
     FreeDecodeIn,
 )
+from app.services.analytics import retention_metrics, usage_frequency
 from app.services.learning import build_daily_learning_report
 from app.services.rule_engine import classification_payload, classify, paid_reply_playbook
 from app.services.rule_eval import candidate_eval_cases, evaluate_rule_engine
@@ -139,6 +140,8 @@ def metrics(_: None = Header(default=None), x_admin_token: str | None = Header(d
         "copy_rate": copy_rate,
         "by_lens": by_lens,
         "safety": safety,
+        "retention": retention_metrics(),
+        "frequency": usage_frequency(),
     }
 
 

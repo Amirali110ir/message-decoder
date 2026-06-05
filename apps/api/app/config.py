@@ -26,11 +26,20 @@ class Settings:
     # Paid layer: higher-quality model (e.g. gemini-2.5-flash on Liara Turing)
     ai_paid_model: str = field(default_factory=lambda: os.getenv("AI_PAID_MODEL", os.getenv("AI_MODEL", "gpt-4.1-mini")))
     # --- Generation quality knobs ---
-    # Free decode: lower creativity acceptable; Paid decode: richer variety needed
-    ai_free_temperature: float = field(default_factory=lambda: float(os.getenv("AI_FREE_TEMPERATURE", "0.7")))
-    ai_paid_temperature: float = field(default_factory=lambda: float(os.getenv("AI_PAID_TEMPERATURE", "0.8")))
+    # Free decode: light analysis, a little creativity is fine.
+    # Paid decode: the final reply the user sends — keep it low for stable, safe,
+    # predictable output. Reply variety comes from prompt structure + frequency
+    # penalty, not from a high temperature.
+    ai_free_temperature: float = field(default_factory=lambda: float(os.getenv("AI_FREE_TEMPERATURE", "0.6")))
+    ai_paid_temperature: float = field(default_factory=lambda: float(os.getenv("AI_PAID_TEMPERATURE", "0.4")))
     # Penalises token repetition so replies feel varied (0 = off, 1 = maximum)
     ai_frequency_penalty: float = field(default_factory=lambda: float(os.getenv("AI_FREQUENCY_PENALTY", "0.4")))
+    # Paid self-critique pass (generate→critique→revise). Default on for quality.
+    # When off, the always-on quality critique is skipped to halve paid latency,
+    # but forbidden phrases are STILL scrubbed (the inspector runs regardless).
+    ai_paid_self_critique_enabled: bool = field(
+        default_factory=lambda: os.getenv("AI_PAID_SELF_CRITIQUE_ENABLED", "true").lower() not in ("false", "0", "no")
+    )
     # --- Semantic cache ---
     # Set to "false" to disable the SQLite semantic response cache
     ai_semantic_cache_enabled: bool = field(

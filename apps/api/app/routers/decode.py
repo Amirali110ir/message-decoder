@@ -34,6 +34,7 @@ from app.services.ai import (
     tone_edit,
 )
 from app.services.auth import get_current_user_id
+from app.services.rule_engine import clarifying_question
 from app.services.contact_memory import (
     build_contact_prompt_context,
     resolve_contact_for_decode,
@@ -68,12 +69,25 @@ async def create_free_decode(
     message_focus = summarize_message_focus(payload, contact_memory)
     contact_memory_context = build_contact_prompt_context(contact_memory, message_focus)
     contact_profile_summary = contact_memory_context or (contact_memory.profile_summary if contact_memory else None)
-    ai_payload = payload
-    if contact_memory_context:
-        optional_context = "\n".join(
-            part for part in (payload.optional_context, contact_memory_context) if part
-        )
-        ai_payload = payload.model_copy(update={"optional_context": optional_context})
+
+    # Episode context (situation arc) is merged into the stored optional_context
+    # so the paid stage — which reads optional_context from the DB — sees the
+    # whole situation, not just the focal message. The structured episode fields
+    # are also passed to the free analysis prompt (see _free_decode_with_ai).
+    episode_context = payload.episode_context()
+    stored_optional_context = "\n".join(
+        part for part in (payload.optional_context, episode_context) if part
+    ) or None
+
+    # Free AI call gets stored context + (ephemeral, unstored) contact memory.
+    ai_optional_context = "\n".join(
+        part for part in (stored_optional_context, contact_memory_context) if part
+    ) or None
+    ai_payload = (
+        payload.model_copy(update={"optional_context": ai_optional_context})
+        if ai_optional_context != payload.optional_context
+        else payload
+    )
 
     classification = classify(payload)
     message_id = new_id("msg")
@@ -104,7 +118,7 @@ async def create_free_decode(
                     anonymized,
                     payload.relationship_type,
                     payload.user_goal,
-                    payload.optional_context,
+                    stored_optional_context,
                     payload.privacy_consent,
                     classification.safety_label,
                     now_iso(),
@@ -172,6 +186,7 @@ async def create_free_decode(
         free_output=output,
         contact_id=resolved_contact_id,
         contact_profile_summary=contact_profile_summary,
+        clarifying_question=clarifying_question(classification, payload),
         prompt_version=PROMPT_VERSION,
         model_version=current_model_version(),
     )

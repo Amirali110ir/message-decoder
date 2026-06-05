@@ -44,7 +44,12 @@ class Classification:
 
 
 def classify(payload: FreeDecodeIn) -> Classification:
-    raw_text = f"{payload.message_text}\n{payload.optional_context or ''}"
+    # Analyse the whole situation arc (episode), not just the last message, so
+    # lens / tone / risk reflect the build-up rather than one isolated line.
+    episode = payload.episode_context()
+    raw_text = "\n".join(
+        part for part in (payload.message_text, payload.optional_context, episode) if part
+    )
     text = normalize_persian(raw_text).lower()
     safety_reasons = _matched_categories(text, SAFETY_RULES)
     tones = _matched_categories(text, TONE_RULES)
@@ -81,7 +86,7 @@ def classify(payload: FreeDecodeIn) -> Classification:
         "manipulation_redirect" if manipulative else "normal",
         dominant,
         secondary,
-        "بالا" if scores[dominant] >= 2 else "متوسط",
+        _confidence_from_score(scores[dominant]),
         manipulative,
         tones=tones or default_tones(payload.relationship_type, payload.user_goal),
         hidden_need=profile["hidden_need"],
@@ -93,6 +98,47 @@ def classify(payload: FreeDecodeIn) -> Classification:
         evidence_terms=matched_terms(text, LENS_TERMS[dominant]),
         lens_scores=scores,
     )
+
+
+def _confidence_from_score(score: float) -> str:
+    """Three-tier confidence so genuinely ambiguous messages are flagged.
+
+    A bare message with no lens keyword falls back to a default lens with a tiny
+    context bias (<0.8) — that is exactly the "پایین" case where a targeted
+    clarifying question beats a blind analysis (T2.4).
+    """
+    if score >= 2:
+        return "بالا"
+    if score >= 0.8:
+        return "متوسط"
+    return "پایین"
+
+
+# A single targeted question per dominant lens, mapped to the missing episode
+# piece. The aim is to recover the situation arc with ONE question, not a form.
+_CLARIFYING_QUESTIONS = {
+    "oxytocin": "قبلش چی شده بود؟ دعوا کرده بودید یا یهویی این پیامو داد؟",
+    "serotonin": "قبلش اتفاقی افتاد که حس کنه بهش بی‌احترامی شده یا کم گرفتیش؟",
+    "dopamine": "این پیام سرِ یه موضوعِ مشخصه؟ چیزی بوده که ازت می‌خواسته و عقب افتاده؟",
+}
+_CLARIFYING_DEFAULT = "قبلش چی شده بود؟ یه‌کم از ماجرا بگو تا دقیق‌تر بخونمش."
+
+
+def clarifying_question(classification: Classification, payload: FreeDecodeIn) -> str | None:
+    """Return ONE targeted question when confidence is low and no episode was given.
+
+    Question is the last resort, not the first: it only fires for genuinely
+    ambiguous input (low confidence) where the user has not already supplied any
+    episode context. Once they answer (episode present) or the signal is strong
+    enough, no question is asked. Never asks in Safety Mode.
+    """
+    if classification.safety_label == "high_risk":
+        return None
+    if classification.confidence != "پایین":
+        return None
+    if payload.episode_context() is not None:
+        return None
+    return _CLARIFYING_QUESTIONS.get(classification.dominant_lens, _CLARIFYING_DEFAULT)
 
 
 def classification_payload(classification: Classification) -> dict[str, Any]:

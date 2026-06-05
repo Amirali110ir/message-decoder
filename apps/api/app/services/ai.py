@@ -8,8 +8,9 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
-from app.schemas import FreeDecodeIn, FreeDecodeOutput, LensLabel, LensMix, PaidDecodeOutput, ReplyOption, SafetyOutput, ToneStress
+from app.schemas import FreeDecodeIn, FreeDecodeOutput, LensLabel, LensMix, PaidDecodeOutput, ReactionForecast, ReplyOption, SafetyOutput, ToneStress
 from app.services.cache import get_cached_response, set_cached_response
+from app.services.golden_examples import golden_examples_for_prompt
 from app.services.rule_engine import (
     RULE_ENGINE_VERSION,
     Classification,
@@ -20,9 +21,9 @@ from app.services.rule_engine import (
 from app.utils import has_sensitive_info
 
 
-PROMPT_VERSION = "message-decoder-system-v0.3"
+PROMPT_VERSION = "message-decoder-system-v0.4"
 MODEL_VERSION = "mock-v0.1"
-OUTPUT_SCHEMA_VERSION = "decode-schema-v0.2"
+OUTPUT_SCHEMA_VERSION = "decode-schema-v0.4"
 
 
 class PaidDecodeUnavailable(Exception):
@@ -30,43 +31,63 @@ class PaidDecodeUnavailable(Exception):
 
 
 SYSTEM_PROMPT = """
-تو Message Decoder by NeuroLens هستی.
+تو Message Decoder by NeuroLens هستی؛ یک ابزار فارسی‌زبان برای رمزگشایی پیام‌ها، چت‌ها و ایمیل‌های مبهم، سرد، تند، احساسی، کنایه‌آمیز یا حرفه‌ای.
 
-تو یک ابزار فارسی‌زبان برای رمزگشایی پیام‌ها، چت‌ها و ایمیل‌های مبهم، سرد، تند، احساسی، کنایه‌آمیز یا حرفه‌ای هستی.
+وعده محصول: قبل از جواب دادن، بفهم پشت پیام طرف چیست و یک جواب کم‌ریسک‌تر بساز.
+هدف اول: فهمیدن نیاز، ترس، فشار، سوءتفاهم یا ریسک پنهان پشت پیام طرف مقابل.
+هدف دوم: ساختن پاسخی که کاربر بتواند بی‌دردسر بفرستد — انسانی، کم‌ریسک، و صادقانه.
 
-وعده محصول: قبل از جواب دادن، بفهم پشت پیامش چیست و جواب کم‌ریسک‌تر بگیر.
+══════ محدودیت‌های همیشگی ══════
+- از روی متن، سطح واقعی هورمون تشخیص نده. هیچ‌وقت نگو «اکسی‌توسین/سروتونین/دوپامینِ طرف بالا/پایین است». سه هورمون فقط لنز رفتاری‌اند، نه واقعیت زیستی.
+- تشخیص روانشناختی، پزشکی یا شخصیتی نده. برچسب‌هایی مثل narcissist، toxic، bipolar، اختلال شخصیت، افسرده، وابسته یا کنترل‌گر را به‌عنوان حکم قطعی نده.
+- درباره نیت طرف مقابل قطعی حرف نزن؛ از «احتمالاً»، «ممکن است»، «به‌نظر می‌رسد» استفاده کن.
 
-هدف اصلی تو کمک به کاربر برای فهمیدن نیاز، ترس، فشار، سوءتفاهم، حساسیت یا ریسک پنهان پشت پیام طرف مقابل است. هدف دوم ساختن پاسخ بهتر، کم‌ریسک‌تر، انسانی‌تر، تعیین‌کننده‌تر مرز روابط یا حرفه‌ای‌تر است.
+══════ سه لنز اصلی (زبان داخلیِ تحلیل) ══════
+۱. لنز هدف و کنترل — Dopamine Lens: هدف، نتیجه، کنترل، عجله، ناکامی، فشار برای اقدام. سؤال پنهان: «چرا چیزی که می‌خوام جلو نمی‌ره؟»
+۲. لنز امنیت و اعتماد — Oxytocin Lens: امنیت عاطفی، اعتماد، نزدیکی، دیده‌شدن، ترس از بی‌اهمیت شدن. سؤال پنهان: «هنوز برات مهمم و می‌تونم بهت اعتماد کنم؟»
+۳. لنز شأن و احترام — Serotonin Lens: شأن، احترام، جایگاه، تحقیر، مقایسه، قضاوت. سؤال پنهان: «دیده شدم و جایگاهم حفظ شد؟»
 
-محدودیت‌های مهم:
-- از روی متن، سطح واقعی هورمون تشخیص نده.
-- تشخیص روانشناختی، پزشکی یا شخصیتی نده.
-- برچسب‌هایی مثل narcissist، toxic، bipolar، اختلال شخصیت، افسرده، وابسته یا کنترل‌گر را به عنوان حکم قطعی استفاده نکن.
-- درباره نیت طرف مقابل قطعی حرف نزن.
-- از عبارت‌هایی مثل «احتمالاً»، «ممکن است»، «نشانه‌هایی از»، «برداشت محتاطانه» استفاده کن.
-- سه هورمون را فقط به عنوان لنز رفتاری توضیح بده، نه واقعیت آزمایشگاهی.
+══════ فرآیند ══════
+۱. اول خطر را بررسی کن. اگر تهدید، خشونت، خودآسیب‌رسانی، اخاذی، stalking، اجبار یا تهدید جنسی/فیزیکی بود، Safety Mode فعال است و پاسخ عاطفی یا استراتژیکِ عادی تولید نکن.
+۲. لحن پیام را بخوان (سرد، تند، کنایه، منفعل-پرخاشگر، قربانی‌گونه، کنترل‌گر، مبهم، دفاعی...).
+۳. لنز غالب و فرعی را انتخاب کن و نیاز پنهان، ریسک پاسخ غلط، جهت پاسخ بهتر و برداشت جایگزین را دربیاور.
+۴. اگر درخواست کاربر manipulative بود، آن را به یک پاسخ سالم، قاطع و بالغ تبدیل کن — نه ساختن حس گناه در طرف مقابل.
 
-سه لنز اصلی:
-۱. لنز هدف و کنترل — Dopamine Lens: هدف، نتیجه، کنترل، عجله، ناکامی، فشار برای اقدام. سؤال پنهان: «چرا چیزی که می‌خواهم جلو نمی‌رود؟»
-۲. لنز امنیت و اعتماد — Oxytocin Lens: امنیت عاطفی، اعتماد، نزدیکی، وفاداری، دیده‌شدن، ترس از بی‌اهمیت شدن. سؤال پنهان: «آیا هنوز برای تو مهمم و می‌توانم به تو اعتماد کنم؟»
-۳. لنز شأن و احترام — Serotonin Lens: شأن، احترام، جایگاه، اعتبار، تحقیر، مقایسه، قضاوت. سؤال پنهان: «آیا من دیده شدم، محترم شمرده شدم و جایگاهم حفظ شد؟»
+══════ قواعدِ نوشتنِ «متنِ پاسخِ قابل‌ارسال» ══════
+این قواعد فقط برای متن‌هایی است که کاربر عیناً می‌فرستد: reply_options[].text، copy_ready_reply، safe_opening_line و هر بازنویسی. (متنِ تحلیل لازم نیست شکسته باشد، ولی آن هم روان و انسانی باشد.)
 
-فرآیند تحلیل:
-۱. اول خطر را بررسی کن. اگر تهدید، خشونت، خودآسیب‌رسانی، اخاذی، stalking، اجبار، تهدید جنسی، تهدید فیزیکی یا خطر جدی بود، Safety Mode فعال است: پاسخ عاشقانه یا استراتژیک عادی تولید نکن.
-۲. لحن پیام را تشخیص بده: سرد، تند، کنایه‌آمیز، passive-aggressive، رسمی، تهدیدکننده، ناراحت، قربانی‌گونه، کنترل‌گر، مبهم، دفاعی، شرمنده‌کننده یا تعیین‌کننده مرز روابط.
-۳. لنز غالب و فرعی را انتخاب کن.
-۴. نیاز پنهان احتمالی، ریسک پاسخ اشتباه، جهت پاسخ بهتر، احتمال خطا و برداشت جایگزین را توضیح بده.
-۵. اگر paid است، پاسخ‌ها باید واقعاً متنوع باشند: نرم، تعیین‌کننده مرز روابط، کوتاه، هدف‌محور، و اگر context کاری/اکس/پایان مکالمه بود نسخه مخصوص همان موقعیت.
-۶. اگر کاربر درخواست manipulative داد، درخواست را به پاسخ سالم، قاطع، بالغ و استراتژیک تبدیل کن.
+فرم (شکلِ جمله):
+- شکسته بنویس: «می‌خوام» نه «می‌خواهم»، «بهت» نه «به تو»، «نمی‌دونم» نه «نمی‌دانم».
+- کوتاه: اندازه‌ی یک پیامِ چت، یک تا سه جمله. نه پاراگراف.
+- مستقیم سرِ اصل مطلب، مثل پیام تلگرام. بدون مقدمه‌ی «سلام، امیدوارم خوب باشی».
+- خطاب صمیمی «تو» (در رابطه/دوست/خانواده/اکس). برای کار و مشتری «شما».
+- اتصال‌های حسی («خب»، «راستش»، «آخه») کم و طبیعی، نه پشت‌سرهم.
+- هیچ واژه‌ی روان‌شناسی یا کلیشه‌ی درمانی در متنِ پاسخ نیار: «اعتبارسنجی»، «مرزبندی»، «نیاز عاطفی»، «مکانیزم دفاعی»، «فضای امن»، «انرژی»، «ولیدیت کردن»، «ارتباط مؤثر» — هیچ‌کدام.
 
-لحن پاسخ‌ها:
+محتوا (آنچه جمله می‌گوید):
+- اول حال را تنظیم کن، بعد منطق: جمله‌ی اول باید حسِ تهدید را خاموش کند، نه استدلال بیاورد.
+- تأیید احساس ≠ تأیید ادعا: «می‌فهمم چرا دلخور شدی» آره؛ «حق با توئه» نه (مگر واقعاً سهمی داری).
+- مشخص، نه کلی: «جمعه عصر فقط مالِ خودته» بهتر از «بعداً جبران می‌کنم».
+- بدونِ دفاع و بهانه: اتهام را آرام نادیده بگیر، توجیه نکن. هیچ‌وقت «سرم شلوغ بود»، «درگیر کاری بودم»، «حواسم نبود» یا هر بهانه‌ی مشابه ننویس — این‌ها تله‌ی طرف را تأیید می‌کنند و پاسخ را ضعیف می‌کنند.
+- قدمِ نرمِ طرف را بگیر: اگر طرف نرم شد یا عذرخواهی کرد، با گرمی بگیرش، خنثی نکن.
+- در باز، نه مطالبه: «هر وقت خواستی حرف بزنیم» بهتر از «بگو چی شده».
+
+ساختارِ سه‌جمله‌ایِ پیش‌فرض (مگر موقعیت اقتضا نکند):
+  جمله ۱: حسِ تهدید را خاموش کن (تأیید احساس، بدون تأیید ادعا).
+  جمله ۲: موضع خودت را مشخص و بدون دفاع بگو (جزئی، نه کلی).
+  جمله ۳: یک در باز بگذار (دعوت، نه دستور).
+
+لحنِ پاسخ بر اساس رابطه:
 - رابطه عاطفی: انسانی، گرم، واضح، بدون التماس.
-- اکس: محترمانه، تعیین‌کننده مرز روابط، بدون باز کردن بی‌دلیل رابطه.
-- کار و همکار: حرفه‌ای، کوتاه، مسئولیت‌پذیر، بدون دفاع اضافه.
-- خانواده: محترمانه، احساسی اما تعیین‌کننده مرز روابط.
+- اکس: محترمانه، با مرزِ روشن، بدون باز کردن بی‌دلیلِ رابطه.
+- کار و همکار/مشتری: حرفه‌ای، کوتاه، مسئولیت‌پذیر، بدون دفاعِ اضافه (اینجا «شما» و کمی رسمی‌تر).
+- خانواده: محترمانه و احساسی اما با مرز.
 - دوست: صمیمی، روشن، بدون حمله.
 
-پاسخ‌ها باید فارسی طبیعی، قابل ارسال، غیررباتی و JSON معتبر مطابق schema خواسته‌شده باشند.
+══════ مرزِ اخلاقی (همیشه فعال) ══════
+پاسخ باید به کاربر کمک کند صادقانه‌تر و واضح‌تر حرف بزند، نه اینکه طرف مقابل را فریب دهد، گناه‌اندازی کند یا به کاری وادارد که با آگاهیِ کامل انتخاب نمی‌کرد. هیچ پاسخ manipulative، تحقیرآمیز، تهدیدآمیز یا التماس‌گونه نساز.
+
+خروجی باید فارسیِ طبیعی و غیررباتی، و یک JSON معتبر مطابق schema خواسته‌شده باشد.
 """.strip()
 
 
@@ -507,6 +528,64 @@ async def _before_send_with_ai(
         return None
 
 
+# Defensive excuses and clinical jargon that must never survive in a reply the
+# user sends. These complement the model-generated words_to_avoid list so the
+# post-generation inspector catches content the model sometimes slips in even
+# when the system prompt forbids it.
+DEFENSIVE_EXCUSE_PHRASES = [
+    "سرم شلوغ بود",
+    "سرم شلوغه",
+    "درگیر کاری بودم",
+    "درگیر یه کاری بودم",
+    "درگیر کار بودم",
+    "حواسم نبود",
+    # NOTE: phrases like "یادم رفت" / "فراموش کردم" are intentionally NOT here —
+    # they are too context-dependent ("یه چیزی یادم رفت بگم" is innocent), so a
+    # substring block would false-positive. The self-critique pass catches
+    # genuinely defensive uses instead.
+]
+PSYCH_JARGON_PHRASES = [
+    "اعتبارسنجی",
+    "مرزبندی",
+    "نیاز عاطفی",
+    "مکانیزم دفاعی",
+    "فضای امن",
+    "ولیدیت",
+    "ارتباط مؤثر",
+    "ارتباط موثر",
+]
+
+
+def _paid_reply_texts(data: dict[str, Any]) -> list[str]:
+    """Collect every text field of a paid output that the user might send."""
+    texts: list[str] = []
+    for reply in data.get("reply_options") or []:
+        if isinstance(reply, dict) and isinstance(reply.get("text"), str):
+            texts.append(reply["text"])
+    for key in ("copy_ready_reply", "safe_opening_line"):
+        value = data.get(key)
+        if isinstance(value, str):
+            texts.append(value)
+    return texts
+
+
+def find_forbidden_phrases(texts: list[str], words_to_avoid: list[str]) -> list[str]:
+    """Return the forbidden phrases that actually appear in any reply text.
+
+    Combines the rule-engine / model words_to_avoid with the built-in defensive
+    excuse and psychology-jargon blocklists. Matching is plain substring on the
+    raw text (phrases are short colloquial fragments, so this is sufficient and
+    avoids false negatives from tokenisation).
+    """
+    blob = "\n".join(texts)
+    candidates = [*(words_to_avoid or []), *DEFENSIVE_EXCUSE_PHRASES, *PSYCH_JARGON_PHRASES]
+    seen: list[str] = []
+    for phrase in candidates:
+        if isinstance(phrase, str) and phrase.strip() and phrase in blob and phrase not in seen:
+            seen.append(phrase)
+    return seen
+
+
 def with_reaction_predictions(replies: list[ReplyOption], relationship_type: str, dominant_lens: str) -> list[ReplyOption]:
     fallback = {
         "dopamine": "احتمالاً طرف مقابل سریع‌تر روی اقدام، تصمیم یا پاسخ مشخص تمرکز می‌کند.",
@@ -515,8 +594,23 @@ def with_reaction_predictions(replies: list[ReplyOption], relationship_type: str
     }.get(dominant_lens, "احتمالاً واکنش اولیه به لحن شما وابسته است؛ کوتاه و روشن نگه داشتن پاسخ ریسک را کم می‌کند.")
     if relationship_type in ("manager_colleague", "customer"):
         fallback = "احتمالاً پاسخ حرفه‌ای و زمان‌بندی روشن را بهتر می‌پذیرد و بحث از حالت احساسی خارج می‌شود."
+
+    # Structured forecast per label: firmer/boundary replies carry more risk.
+    def _forecast(reply: ReplyOption) -> ReactionForecast:
+        firm = reply.label in ("تعیین‌کننده مرز روابط", "قاطع و آرام", "پایان‌دهنده")
+        return ReactionForecast(
+            likely_reaction="احتمالاً اول کمی جبهه می‌گیرد ولی مرز روشن می‌شود" if firm
+            else "احتمالاً آرام‌تر می‌شود چون حسِ متهم‌شدن نمی‌گیرد",
+            reason="لحنِ محکم می‌تواند ابتدا دفاعی‌اش کند" if firm
+            else "چون اول احساسش دیده می‌شود، کمتر تدافعی می‌شود",
+            risk_level="متوسط" if firm else "کم",
+        )
+
     return [
-        reply.model_copy(update={"reaction_prediction": reply.reaction_prediction or fallback})
+        reply.model_copy(update={
+            "reaction_prediction": reply.reaction_prediction or fallback,
+            "reaction_forecast": reply.reaction_forecast or _forecast(reply),
+        })
         for reply in replies
     ]
 
@@ -611,9 +705,12 @@ async def _free_decode_with_ai(
         "recommended_direction": "string",
         "confidence": "پایین | متوسط | بالا",
         "alternative_read": "string",
+        "insight_line": "string",
+        "situation_arc": "string | null",
         "privacy_warning": None,
         "cta": "string",
     }
+    episode_context = payload.episode_context()
     user_prompt = {
         "task": "free_decode",
         "message_text": payload.message_text,
@@ -621,6 +718,7 @@ async def _free_decode_with_ai(
         "relationship_type": payload.relationship_type,
         "user_goal": payload.user_goal,
         "optional_context": payload.optional_context,
+        "episode_context": episode_context,
         "contact_memory_context": contact_memory_context,
         "rule_engine_analysis": classification_payload(classification),
         "requirements": [
@@ -631,11 +729,13 @@ async def _free_decode_with_ai(
             "از قطعیت درباره نیت یا شخصیت طرف مقابل پرهیز کن.",
             "از rule_engine_analysis استفاده کن، اما اگر متن خلافش را نشان می‌دهد، محتاطانه اصلاح کن.",
             "چرا این لنز دیده می‌شود را با اشاره به لحن/کلمه‌های پیام توضیح بده.",
+            "insight_line: یک جمله‌ی کوتاه، مشخص و انسانی که نیازِ پنهان را دقیق بگوید (مثلِ «این پیام عصبانی نیست، ترسیده»). کلی و کلیشه‌ای نباشد (مثلِ «احساساتِ پیچیده‌ای دارد» قابل قبول نیست).",
+            "situation_arc: فقط اگر episode_context داده شده، یک روایتِ کوتاهِ ساختاری از قوسِ موقعیت بده — کجای ماجرا اعتماد لرزید/حسِ بی‌احترامی آمد/تهدید فعال شد — نه فقط واکنش به پیامِ آخر. اگر episode_context نبود، null بگذار. هیچ ادعای زیستی/پزشکیِ قطعی نزن؛ لنزها فقط زبانِ استعاری‌اند.",
             "فارسی طبیعی بنویس.",
         ],
         "json_schema_shape": schema_hint,
     }
-    cache_key = hashlib.sha256(json.dumps(user_prompt, sort_keys=True).encode()).hexdigest()
+    cache_key = _build_cache_key(user_prompt, _model_for_task("free"))
     if settings.ai_semantic_cache_enabled and not payload.ghost_mode:
         cached = get_cached_response(task="free_decode", cache_key=cache_key)
         if cached:
@@ -660,6 +760,54 @@ async def _free_decode_with_ai(
         return None
 
 
+# Above this many characters the episode/context is compressed by the cheap
+# free model before being sent to the expensive paid model (roadmap §10 / T10.2).
+PAID_CONTEXT_COMPRESS_THRESHOLD = 1200
+
+
+def _should_compress_context(text: str | None) -> bool:
+    return bool(text) and len(text) > PAID_CONTEXT_COMPRESS_THRESHOLD  # type: ignore[arg-type]
+
+
+async def _compress_context(text: str, message_text: str | None) -> str | None:
+    """Cheap-model pass that turns a long episode into a tight structured summary.
+
+    Not a trade-off but a synergy: fewer tokens to the paid model AND a cleaner
+    structure for it to work with. Returns None on failure so the caller can
+    fall back to the raw (truncated) text.
+    """
+    payload = {
+        "task": "compress_context",
+        "message_text": message_text,
+        "raw_context": text,
+        "requirements": [
+            "این زمینه‌ی طولانی را به یک خلاصه‌ی کوتاهِ ساختاریافته تبدیل کن.",
+            "فقط حقایقِ مهم برای فهمِ موقعیت را نگه دار؛ حرفِ تکراری و حاشیه را دور بریز.",
+            "هیچ تفسیر یا قضاوتی اضافه نکن؛ فقط فشرده کن.",
+        ],
+        "json_schema_shape": {
+            "relationship": "رابطه چطور بوده (کوتاه)",
+            "what_happened": "پیشامد / قوسِ ماجرا (کوتاه)",
+            "their_behavior": "رفتار طرف مقابل (کوتاه)",
+            "recent_points": ["نکته‌های مهمِ پیام‌های اخیر"],
+        },
+    }
+    data = await _chat_json(payload, model=_model_for_task("free"))
+    if not isinstance(data, dict):
+        return None
+    parts: list[str] = []
+    if data.get("relationship"):
+        parts.append(f"رابطه: {data['relationship']}")
+    if data.get("what_happened"):
+        parts.append(f"پیشامد: {data['what_happened']}")
+    if data.get("their_behavior"):
+        parts.append(f"رفتار طرف مقابل: {data['their_behavior']}")
+    pts = data.get("recent_points")
+    if isinstance(pts, list) and pts:
+        parts.append("نکته‌های اخیر: " + " | ".join(str(p) for p in pts[:5]))
+    return "\n".join(parts) if parts else None
+
+
 async def _paid_decode_with_ai(
     free_output: FreeDecodeOutput,
     relationship_type: str,
@@ -669,17 +817,32 @@ async def _paid_decode_with_ai(
     optional_context: str | None = None,
 ) -> PaidDecodeOutput | None:
     settings = get_settings()
+    # Compress an over-long context with the cheap model before paid generation.
+    if _should_compress_context(optional_context):
+        compressed = await _compress_context(optional_context, message_text)  # type: ignore[arg-type]
+        if compressed:
+            optional_context = compressed
     schema_hint = {
         "deep_read": "string",
         "dominant_lens": free_output.dominant_lens.model_dump(),
         "secondary_lenses": [lens.model_dump() for lens in free_output.secondary_lenses],
         "personalization_note": "string | null",
         "reply_options": [
-            {"label": "نرم", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
-            {"label": "تعیین‌کننده مرز روابط", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
-            {"label": "کوتاه", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
-            {"label": "قاطع و آرام", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
-            {"label": "هدف‌محور", "text": "string", "why_it_works": "string", "reaction_prediction": "string"},
+            {"label": "نرم", "text": "string", "why_it_works": "string",
+             "reaction_prediction": "string",
+             "reaction_forecast": {"likely_reaction": "string", "reason": "string", "risk_level": "کم | متوسط | زیاد"}},
+            {"label": "تعیین‌کننده مرز روابط", "text": "string", "why_it_works": "string",
+             "reaction_prediction": "string",
+             "reaction_forecast": {"likely_reaction": "string", "reason": "string", "risk_level": "کم | متوسط | زیاد"}},
+            {"label": "کوتاه", "text": "string", "why_it_works": "string",
+             "reaction_prediction": "string",
+             "reaction_forecast": {"likely_reaction": "string", "reason": "string", "risk_level": "کم | متوسط | زیاد"}},
+            {"label": "قاطع و آرام", "text": "string", "why_it_works": "string",
+             "reaction_prediction": "string",
+             "reaction_forecast": {"likely_reaction": "string", "reason": "string", "risk_level": "کم | متوسط | زیاد"}},
+            {"label": "هدف‌محور", "text": "string", "why_it_works": "string",
+             "reaction_prediction": "string",
+             "reaction_forecast": {"likely_reaction": "string", "reason": "string", "risk_level": "کم | متوسط | زیاد"}},
         ],
         "words_to_avoid": ["string"],
         "safe_opening_line": "string",
@@ -697,7 +860,9 @@ async def _paid_decode_with_ai(
         "user_goal": user_goal,
         "contact_profile_summary": contact_profile_summary,
         "reply_playbook": paid_reply_playbook(relationship_type, user_goal, free_output.dominant_lens.key),
+        "نمونه‌های_طلایی": golden_examples_for_prompt(relationship_type, user_goal, limit=4),
         "requirements": [
+            "اگر «نمونه‌های_طلایی» داده شده، لحن و سبکِ همان‌ها را تقلید کن: شکسته، کوتاه، سه‌جمله‌ای، بدونِ بهانه و دفاع (مثلِ «سرم شلوغ بود» ننویس). نمونه‌ها را عیناً کپی نکن؛ فقط جنسِ لحن و ساختارشان را بگیر و برای همین پیام بساز.",
             "۴ تا ۵ پاسخ آماده و قابل کپی بده؛ پاسخ‌ها واقعاً از نظر زاویه و کاربرد متفاوت باشند.",
             "هر پاسخ باید به message_focus یا جزئیات message_text مربوط باشد. جواب‌هایی مثل «می‌فهمم چرا اینطوری برداشت کردی» بدون اشاره به موضوع مشخص پیام کافی نیست.",
             "اگر contact_profile_summary وجود دارد، پاسخ را با حافظه همین مخاطب شخصی‌سازی کن اما از برچسب قطعی شخصیتی پرهیز کن.",
@@ -706,13 +871,15 @@ async def _paid_decode_with_ai(
             "copy_ready_reply را از بهترین ترکیب برای user_goal بساز، نه الزاماً اولین پاسخ.",
             "کلمات ممنوع و دلیل هر پاسخ را بده.",
             "برای هر reply_options یک reaction_prediction کوتاه بده که واکنش احتمالی طرف مقابل را بدون قطعیت‌نمایی توضیح دهد.",
+            "همچنین برای هر reply_options یک reaction_forecast ساختاریافته بده: likely_reaction (واکنشِ محتمل مثل «آرام می‌شود» یا «اول جبهه می‌گیرد»)، reason (دلیلِ کوتاه)، و risk_level یکی از «کم/متوسط/زیاد». لحن محتاط باشد («احتمالاً»)، نه قطعی، چون پیش‌بینیِ غلط اعتماد را می‌ریزد.",
+            "اگر contact_profile_summary وجود دارد، reaction_forecast را با تاریخچه‌ی همین مخاطب تعدیل کن (مثلاً اگر قبلاً لحنِ محکم سردش کرده، ریسکِ گزینه‌های محکم را بالاتر بزن و در reason به الگوی همین رابطه اشاره کن) — اما هیچ برچسبِ قطعیِ شخصیتی نزن.",
             "نسخه با استناد به Message Decoder اختیاری و نرم باشد.",
             "هیچ پاسخ manipulative، guilt-trip، تحقیرآمیز یا تحریک‌کننده تولید نکن.",
             "فارسی طبیعی بنویس، نه رباتی یا بیش از حد روانشناسانه.",
         ],
         "json_schema_shape": schema_hint,
     }
-    cache_key = hashlib.sha256(json.dumps(user_prompt, sort_keys=True).encode()).hexdigest()
+    cache_key = _build_cache_key(user_prompt, _model_for_task("paid"))
     if settings.ai_semantic_cache_enabled:
         cached = get_cached_response(task="paid_decode", cache_key=cache_key)
         if cached:
@@ -722,12 +889,82 @@ async def _paid_decode_with_ai(
         return None
     if free_output.message_focus and not data.get("personalization_note"):
         data["personalization_note"] = _paid_personalization_note(free_output.message_focus, contact_profile_summary)
+
+    # Generate → critique → revise: one self-critique pass that also consumes the
+    # deterministic forbidden-phrase inspector (model words_to_avoid + defensive
+    # excuses + clinical jargon). Runs once for paid only.
+    #
+    # The full quality critique is gated by AI_PAID_SELF_CRITIQUE_ENABLED so paid
+    # latency can be halved when needed. Forbidden phrases are ALWAYS scrubbed,
+    # regardless of the flag, so the safety/quality floor never depends on it.
+    forbidden = find_forbidden_phrases(_paid_reply_texts(data), data.get("words_to_avoid") or [])
+    if settings.ai_paid_self_critique_enabled or forbidden:
+        data = await _self_critique_paid(data, forbidden, relationship_type, user_goal)
+        # Hard backstop: if an unambiguous forbidden phrase still slipped through
+        # the revise, try one more focused pass before giving up.
+        still = find_forbidden_phrases(_paid_reply_texts(data), data.get("words_to_avoid") or [])
+        if still:
+            data = await _self_critique_paid(data, still, relationship_type, user_goal)
+
     if settings.ai_semantic_cache_enabled:
         set_cached_response(task="paid_decode", cache_key=cache_key, response=data, model_used=_model_for_task("paid"))
     try:
         return PaidDecodeOutput.model_validate(data)
     except Exception:
         return None
+
+
+# The self-critique checklist applied to every paid output before it is shown.
+SELF_CRITIQUE_CHECKLIST = [
+    "آیا پاسخ دفاعی است یا بهانه می‌آورد؟ (مثلِ «سرم شلوغ بود»، «درگیر کاری بودم») — بهانه را حذف کن و به‌جایش حسِ طرف را تأیید کن.",
+    "آیا پاسخ کلی و مبهم است؟ اگر می‌شود جزئی‌ترش کن (یک اقدام یا زمانِ مشخص بهتر از وعده‌ی کلی است).",
+    "اگر طرف مقابل قدمِ نرم برداشته یا عذرخواهی کرده، آیا پاسخ آن را با گرمی گرفته یا خنثی‌اش کرده؟ قدمِ نرم را بگیر.",
+    "آیا واژه‌ی روان‌شناسی یا کلیشه‌ی درمانی در متنِ پاسخ هست؟ حذفش کن.",
+    "آیا پاسخ از مرز اخلاقی عبور می‌کند (فریب، گناه‌اندازی، وادارکردن)؟ به یک پاسخ صادقانه و سالم تبدیلش کن.",
+]
+
+
+async def _self_critique_paid(
+    data: dict[str, Any],
+    forbidden_phrases: list[str],
+    relationship_type: str,
+    user_goal: str,
+) -> dict[str, Any]:
+    """One corrective self-critique pass over a paid output (generate→critique→revise).
+
+    Always runs for the paid path. The model reviews each reply against
+    SELF_CRITIQUE_CHECKLIST plus any forbidden phrases the deterministic
+    inspector found, and returns an improved version of the SAME JSON — leaving
+    replies that already pass untouched. Falls back to the original data if the
+    call fails or the result does not validate, so it can only improve, never
+    break, the response. paid only (not free) to bound latency/cost.
+    """
+    revise_payload = {
+        # task must be "paid_decode" so _chat_json routes to the paid endpoint/model.
+        "task": "paid_decode",
+        "subtask": "self_critique_revise",
+        "relationship_type": relationship_type,
+        "user_goal": user_goal,
+        "current_output": data,
+        "checklist": SELF_CRITIQUE_CHECKLIST,
+        "forbidden_phrases_must_remove": forbidden_phrases,
+        "requirements": [
+            "هر پاسخ را در برابر checklist بررسی کن و فقط جایی را اصلاح کن که از یکی از موارد چک‌لیست رد می‌شود.",
+            "هیچ‌کدام از forbidden_phrases_must_remove نباید در متنِ هیچ پاسخی بماند؛ یا حذفش کن یا با تأییدِ حسِ طرف جایگزینش کن.",
+            "پاسخ‌هایی که از قبل خوب‌اند را دست‌نخورده نگه دار؛ بازنویسیِ بی‌دلیل نکن.",
+            "لحن، ساختار، تعداد پاسخ‌ها و کلیدهای JSON را دقیقاً مثلِ خروجیِ فعلی نگه دار؛ همان schema را برگردان.",
+            "پاسخ‌ها شکسته، کوتاه، سه‌جمله‌ای، طبیعی و قابل ارسال بمانند.",
+        ],
+        "json_schema_shape": {k: data.get(k) for k in data},
+    }
+    revised = await _chat_json(revise_payload, model=_model_for_task("paid"))
+    if not isinstance(revised, dict):
+        return data
+    try:
+        PaidDecodeOutput.model_validate(revised)
+    except Exception:
+        return data
+    return revised
 
 
 async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> dict[str, Any] | None:
@@ -747,6 +984,11 @@ async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> 
         "temperature": temperature,
         "response_format": {"type": "json_object"},
     }
+    # Penalise token repetition so the multiple reply options feel genuinely
+    # varied even at a low temperature. Skip when disabled (0) to avoid sending
+    # an unnecessary param to models that may not support it.
+    if settings.ai_frequency_penalty:
+        body["frequency_penalty"] = settings.ai_frequency_penalty
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -762,6 +1004,21 @@ async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> 
         if isinstance(e, httpx.HTTPStatusError):
             print(f"HTTP Status Error: {e.response.status_code} - {e.response.text}")
         return None
+
+
+def _build_cache_key(user_prompt: dict[str, Any], model: str) -> str:
+    """Cache key that is sensitive to the prompt version and the model used.
+
+    Without this, changing SYSTEM_PROMPT / PROMPT_VERSION or swapping the model
+    would keep serving stale cached responses, making any prompt tuning
+    impossible to observe. Bumping PROMPT_VERSION now busts the whole cache.
+    """
+    keyed = {
+        "prompt_version": PROMPT_VERSION,
+        "model": model,
+        "payload": user_prompt,
+    }
+    return hashlib.sha256(json.dumps(keyed, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def _parse_json_object(content: str) -> dict[str, Any] | None:

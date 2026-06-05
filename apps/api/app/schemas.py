@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Hard caps for the episode context, so a long paste can never blow up the
+# token budget sent to the model (see roadmap section 10 / T10.1).
+MAX_RECENT_MESSAGES = 5
+MAX_RECENT_MESSAGE_LEN = 500
 
 
 RelationshipType = Literal[
@@ -95,15 +100,29 @@ class FreeDecodeOutput(BaseModel):
     recommended_direction: str
     confidence: Literal["پایین", "متوسط", "بالا"]
     alternative_read: str
+    # One specific, human "I see what's really going on" line (T3.2). Concrete,
+    # not generic — e.g. «این پیام عصبانی نیست، ترسیده».
+    insight_line: str | None = None
+    # Short structured narrative of the situation arc when episode context is
+    # given (T3.4) — where trust wavered / dignity was hit / threat fired. Not a
+    # single-message label, and no biological claims.
+    situation_arc: str | None = None
     privacy_warning: str | None = None
     cta: str
+
+
+class ReactionForecast(BaseModel):
+    likely_reaction: str            # واکنشِ محتمل (آرام می‌شود / تدافعی می‌شود / سرد می‌شود...)
+    reason: str                     # دلیلِ کوتاه (چرا این واکنش)
+    risk_level: Literal["کم", "متوسط", "زیاد"]
 
 
 class ReplyOption(BaseModel):
     label: str
     text: str
     why_it_works: str
-    reaction_prediction: str | None = None
+    reaction_prediction: str | None = None      # legacy free-text (kept for back-compat)
+    reaction_forecast: ReactionForecast | None = None  # structured prediction (T3.1)
 
 
 class PaidDecodeOutput(BaseModel):
@@ -160,14 +179,44 @@ class SafetyOutput(BaseModel):
 
 
 class FreeDecodeIn(BaseModel):
+    # Focal message is the only required text; everything else is optional so
+    # the entry never becomes a big mandatory form (T1.7 day-0 warning).
     message_text: str = Field(min_length=1, max_length=4000)
     relationship_type: RelationshipType = "unknown"
     user_goal: UserGoal = "understand_only"
     optional_context: str | None = Field(default=None, max_length=2000)
+    # --- Episode fields: the unit of analysis is the situation, not one message ---
+    episode_background: str | None = Field(default=None, max_length=1000)  # قبلش چه شد / رابطه چطور بود
+    their_behavior: str | None = Field(default=None, max_length=1000)      # طرف چطور رفتار/واکنش نشان داد
+    recent_messages: list[str] | None = Field(default=None)               # چند پیامِ آخر (سقف‌دار)
     privacy_consent: PrivacyConsent = "none"
     contact_id: str | None = None
     contact_name: str | None = Field(default=None, max_length=100)
     ghost_mode: bool = False
+
+    @field_validator("recent_messages")
+    @classmethod
+    def _cap_recent_messages(cls, value: list[str] | None) -> list[str] | None:
+        if not value:
+            return None
+        capped = [m.strip()[:MAX_RECENT_MESSAGE_LEN] for m in value if isinstance(m, str) and m.strip()]
+        return capped[:MAX_RECENT_MESSAGES] or None
+
+    def episode_context(self) -> str | None:
+        """Compact, structured rendering of the episode for prompts/storage.
+
+        Returns None when no episode field was supplied, so the single-message
+        path stays byte-for-byte identical to before.
+        """
+        parts: list[str] = []
+        if self.episode_background:
+            parts.append(f"پیشینه/رابطه: {self.episode_background.strip()}")
+        if self.their_behavior:
+            parts.append(f"رفتار طرف مقابل: {self.their_behavior.strip()}")
+        if self.recent_messages:
+            joined = " | ".join(self.recent_messages)
+            parts.append(f"چند پیامِ آخر: {joined}")
+        return "\n".join(parts) if parts else None
 
 
 class FreeDecodeResponse(BaseModel):
@@ -177,6 +226,9 @@ class FreeDecodeResponse(BaseModel):
     safety_output: SafetyOutput | None = None
     contact_id: str | None = None
     contact_profile_summary: str | None = None
+    # One targeted question when the message is too ambiguous to analyse well and
+    # no episode context was given (T2.4). None otherwise.
+    clarifying_question: str | None = None
     prompt_version: str
     model_version: str
 
