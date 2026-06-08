@@ -8,6 +8,14 @@ import { faNum } from "../../lib/format";
 
 type Referral = { referral_code: string; referral_url: string; reward_credits: number };
 
+// Relationship → lens family, for the avatar tint (echoes the design's memory screen).
+function relLens(rel: string): "dopamine" | "oxytocin" | "serotonin" | "primary" {
+  if (rel === "manager_colleague" || rel === "customer") return "dopamine";
+  if (rel === "romantic" || rel === "family") return "oxytocin";
+  if (rel === "friend" || rel === "ex") return "serotonin";
+  return "primary";
+}
+
 export default function DashboardPage() {
   const [token, setToken] = useState("");
   const [phone, setPhone] = useState("");
@@ -211,6 +219,7 @@ export default function DashboardPage() {
                   <div className="history-list">
                     {contacts.slice(0, 8).map((contact) => (
                       <div className="history-row" key={contact.id}>
+                        <span className={`hist-ava lens-ava-${relLens(contact.relationship_type)}`}>{contact.name.trim().charAt(0) || "؟"}</span>
                         <div className="history-row-main">
                           <strong>{contact.name} · {contact.relationship_type}</strong>
                           <span>{contact.memory_summary || contact.profile_summary || `${faNum(contact.interaction_count)} تحلیل ذخیره‌شده`}</span>

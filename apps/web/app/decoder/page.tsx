@@ -3,6 +3,7 @@
 import {
   Activity,
   AlertCircle,
+  ArrowLeft,
   Award,
   BookOpenCheck,
   BrainCircuit,
@@ -13,6 +14,7 @@ import {
   Fingerprint,
   Glasses,
   History,
+  Layers,
   LockKeyhole,
   LogIn,
   MessageCircle,
@@ -125,13 +127,119 @@ const playbookTemplates = [
 ] as const;
 
 // Mirror the backend hard caps (T1.7 / T10.1): max 5 recent messages, 500 chars each.
-function parseRecentMessages(raw: string): string[] | undefined {
-  const lines = raw
-    .split("\n")
-    .map((line) => line.trim().slice(0, 500))
-    .filter(Boolean)
-    .slice(0, 5);
+// The thread keeps speaker info; we fold it into each line so the AI sees who said what.
+function threadToRecentMessages(thread: { who: string; text: string }[]): string[] | undefined {
+  const lines = thread
+    .slice(0, 5)
+    .map((m) => `${m.who === "me" ? "من" : "او"}: ${m.text.trim().slice(0, 500)}`)
+    .filter(Boolean);
   return lines.length ? lines : undefined;
+}
+
+// Episode builder — chat-thread composer matching the design prototype.
+function EpisodeBuilder({
+  thread,
+  setThread,
+  epBackground,
+  setEpBackground,
+  epBehavior,
+  setEpBehavior
+}: {
+  thread: { who: string; text: string }[];
+  setThread: (t: { who: string; text: string }[]) => void;
+  epBackground: string;
+  setEpBackground: (v: string) => void;
+  epBehavior: string;
+  setEpBehavior: (v: string) => void;
+}) {
+  const [who, setWho] = useState("them");
+  const [draft, setDraft] = useState("");
+  const full = thread.length >= 5;
+  const add = () => {
+    const t = draft.trim();
+    if (!t || full) return;
+    setThread([...thread, { who, text: t.slice(0, 500) }]);
+    setDraft("");
+  };
+  return (
+    <div className="ep-wrap">
+      <div className="ep-head">
+        <span className="ep-mark"><Layers size={18} /></span>
+        <div>
+          <h4>کلِ ماجرا را تعریف کن</h4>
+          <p>یک پیام معمولاً وسطِ یک ماجراست. هرچه بیشتر بدهی، تحلیل دقیق‌تر می‌شود — همه اختیاری.</p>
+        </div>
+      </div>
+
+      <div className="ep-block">
+        <div className="field-label"><MessageCircle size={15} /> گفت‌وگوی منتهی به این پیام</div>
+        <div className="ep-thread">
+          {thread.length === 0 ? (
+            <div className="ep-empty">چند پیامِ آخر را اضافه کن تا ترتیبِ ماجرا روشن شود.</div>
+          ) : (
+            thread.map((m, i) => (
+              <div key={i} className={`ep-msg ${m.who}`}>
+                <span className="ep-who">{m.who === "me" ? "من" : "او"}</span>
+                {m.text}
+                <button
+                  className="ep-del"
+                  type="button"
+                  onClick={() => setThread(thread.filter((_, idx) => idx !== i))}
+                  aria-label="حذف"
+                >
+                  ×
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        {!full && (
+          <div className="ep-composer">
+            <div className="ep-speaker">
+              {([["them", "او"], ["me", "من"]] as const).map(([v, l]) => (
+                <button key={v} type="button" className={`${v} ${who === v ? "on" : ""}`} onClick={() => setWho(v)}>{l}</button>
+              ))}
+            </div>
+            <input
+              className="field"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+              placeholder={who === "me" ? "چیزی که تو گفتی…" : "چیزی که او گفت…"}
+            />
+            <button className="ep-add" type="button" onClick={add} disabled={!draft.trim()} aria-label="افزودن پیام">
+              <ArrowLeft size={17} />
+            </button>
+          </div>
+        )}
+        <div className="ep-count">{faNum(thread.length)} از ۵ پیام {full ? "· پُر شد" : ""}</div>
+      </div>
+
+      <div className="ep-block">
+        <div className="field-label"><History size={15} /> پیشینهٔ ماجرا — قبلش چه شد؟</div>
+        <textarea
+          className="field"
+          value={epBackground}
+          onChange={(e) => setEpBackground(e.target.value)}
+          placeholder="ماجرا از کجا شروع شد و چه اتفاقی افتاد…"
+          style={{ minHeight: 72 }}
+          maxLength={1000}
+        />
+      </div>
+
+      <div className="ep-block">
+        <div className="field-label"><Users size={15} /> رفتارِ طرف مقابل — این اواخر چطور بوده؟</div>
+        <textarea
+          className="field"
+          value={epBehavior}
+          onChange={(e) => setEpBehavior(e.target.value)}
+          placeholder="مثلاً: سرد شده، دیر جواب می‌دهد، زود می‌رنجد…"
+          style={{ minHeight: 64 }}
+          maxLength={1000}
+        />
+      </div>
+    </div>
+  );
 }
 
 export default function DecoderPage() {
@@ -141,7 +249,7 @@ export default function DecoderPage() {
   const [context, setContext] = useState("");
   const [episodeBackground, setEpisodeBackground] = useState("");
   const [theirBehavior, setTheirBehavior] = useState("");
-  const [recentMessages, setRecentMessages] = useState("");
+  const [thread, setThread] = useState<{ who: string; text: string }[]>([]);
   const [consent, setConsent] = useState<"none" | "history" | "anonymized">("none");
   const [ghostMode, setGhostMode] = useState(false);
   const [freeResult, setFreeResult] = useState<FreeDecodeResponse | null>(null);
@@ -188,6 +296,35 @@ export default function DecoderPage() {
     const prefillMsg = searchParams.get("msg");
     if (prefillMsg) setMessage(decodeURIComponent(prefillMsg));
 
+    // Demo seed for previewing the result/paid UI without a live backend.
+    // Dev-only: never injects sample data in a production build.
+    if (process.env.NODE_ENV !== "production" && searchParams.get("demo") === "loading") {
+      setLoading(true);
+      return;
+    }
+    if (process.env.NODE_ENV !== "production" && searchParams.get("demo")) {
+      setMessage(DEMO_SAMPLE.message);
+      setRelationship("romantic");
+      setGoal("avoid_needy");
+      if (searchParams.get("demo") === "safety") {
+        setFreeResult({
+          ...DEMO_FREE,
+          safety_label: "high_risk",
+          free_output: null,
+          safety_output: {
+            warning_title: "این پیام نشانه‌های نگران‌کننده دارد",
+            priority: "بالا",
+            recommendation: "از روی یک پیام نمی‌شود قطعی قضاوت کرد، اما این متن می‌تواند نشانهٔ یک حالِ خطرناک باشد. اینجا هدف، محافظت است نه ترساندن.",
+            suggested_reply: "من اینجام و برام مهمی. می‌تونیم همین الان با هم حرف بزنیم؟ تنها نیستی."
+          }
+        });
+      } else {
+        setFreeResult(DEMO_FREE);
+      }
+      if (searchParams.get("demo") === "paid") setPaidResult(DEMO_PAID);
+      setStatus("نمونهٔ پیش‌نمایش تحلیل.");
+    }
+
     const savedToken = window.localStorage.getItem("message-decoder-token") || "";
     const savedPhone = window.localStorage.getItem("message-decoder-phone") || "";
     if (!savedToken) return;
@@ -230,7 +367,7 @@ export default function DecoderPage() {
         optional_context: context || undefined,
         episode_background: episodeBackground.trim() || undefined,
         their_behavior: theirBehavior.trim() || undefined,
-        recent_messages: parseRecentMessages(recentMessages),
+        recent_messages: threadToRecentMessages(thread),
         privacy_consent: ghostMode ? "none" : consent,
         contact_id: selectedContactId || undefined,
         contact_name: !selectedContactId && contactName.trim() ? contactName.trim() : undefined,
@@ -351,7 +488,7 @@ export default function DecoderPage() {
               context.trim(),
               episodeBackground.trim() && `پیشینه/رابطه: ${episodeBackground.trim()}`,
               theirBehavior.trim() && `رفتار طرف مقابل: ${theirBehavior.trim()}`,
-              parseRecentMessages(recentMessages)?.length && `چند پیامِ آخر: ${parseRecentMessages(recentMessages)!.join(" | ")}`
+              thread.length > 0 && `چند پیامِ آخر: ${threadToRecentMessages(thread)!.join(" | ")}`
             ].filter(Boolean).join("\n") || undefined
           })
         : await paidDecode(token, freeResult.decode_id);
@@ -647,6 +784,20 @@ export default function DecoderPage() {
             </div>
           </Link>
           <div className="nav-actions">
+            <button
+              type="button"
+              className={`ghost-toggle-compact${ghostMode ? " on" : ""}`}
+              onClick={() => setGhostMode((v) => !v)}
+              title="حالت شبح: متن و نتیجه ذخیره نمی‌شود"
+            >
+              <EyeOff size={14} />
+              <span className="ghost-label-short">{ghostMode ? "شبح: روشن" : "حالت شبح"}</span>
+            </button>
+            {token && (
+              <a href="#history-panel" className="iconbtn" title="تاریخچه تحلیل‌ها">
+                <History size={18} />
+              </a>
+            )}
             {token ? (
               <>
                 <div className="account-badge">
@@ -658,12 +809,7 @@ export default function DecoderPage() {
                   <span>{faNum(credits)} اعتبار</span>
                 </div>
               </>
-            ) : (
-              <div className="credit-badge">
-                <Zap size={14} />
-                <span>وب و تلگرام فعال</span>
-              </div>
-            )}
+            ) : null}
             <Link className="nav-login" href="/">
               صفحه اصلی
             </Link>
@@ -716,33 +862,41 @@ export default function DecoderPage() {
                 />
               </div>
 
-              <div className="form-row">
-                <div className="field-group">
-                  <label className="field-label">
-                    <Users size={16} />
-                    <span>نوع رابطه</span>
-                  </label>
-                  <select value={relationship} onChange={(event) => setRelationship(event.target.value)}>
-                    {relationshipOptions.map(([value, label]) => (
-                      <option value={value} key={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+              <div className="field-group">
+                <label className="field-label">
+                  <Users size={16} />
+                  <span>رابطه با چه کسی؟</span>
+                </label>
+                <div className="chip-row">
+                  {relationshipOptions.map(([value, label]) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={`chip ${relationship === value ? "active" : ""}`}
+                      onClick={() => setRelationship(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
+              </div>
 
-                <div className="field-group">
-                  <label className="field-label">
-                    <Target size={16} />
-                  <span>هدف پاسخ</span>
-                  </label>
-                  <select value={goal} onChange={(event) => setGoal(event.target.value)}>
-                    {goalOptions.map(([value, label]) => (
-                      <option value={value} key={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+              <div className="field-group">
+                <label className="field-label">
+                  <Target size={16} />
+                  <span>از این پاسخ چه می‌خواهی؟</span>
+                </label>
+                <div className="chip-row">
+                  {goalOptions.map(([value, label]) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={`chip ${goal === value ? "active" : ""}`}
+                      onClick={() => setGoal(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -768,41 +922,14 @@ export default function DecoderPage() {
                     />
                   </div>
 
-                  <div className="field-group">
-                    <label className="field-label">
-                      <span>قبلش چه شد؟ (اختیاری)</span>
-                    </label>
-                    <input
-                      value={episodeBackground}
-                      onChange={(event) => setEpisodeBackground(event.target.value)}
-                      placeholder="مثلاً: دو سال باهم بودیم، یه ماهه سرد شده."
-                      maxLength={1000}
-                    />
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label">
-                      <span>طرف مقابل چطور رفتار کرد؟ (اختیاری)</span>
-                    </label>
-                    <input
-                      value={theirBehavior}
-                      onChange={(event) => setTheirBehavior(event.target.value)}
-                      placeholder="مثلاً: تا صبح آنلاین بود ولی جواب نداد."
-                      maxLength={1000}
-                    />
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label">
-                      <span>چند پیامِ آخر (اختیاری، هر خط یک پیام)</span>
-                    </label>
-                    <textarea
-                      value={recentMessages}
-                      onChange={(event) => setRecentMessages(event.target.value)}
-                      placeholder={"هر پیام را در یک خط بنویس\nحداکثر ۵ پیامِ آخر استفاده می‌شود"}
-                      rows={3}
-                    />
-                  </div>
+                  <EpisodeBuilder
+                    thread={thread}
+                    setThread={setThread}
+                    epBackground={episodeBackground}
+                    setEpBackground={setEpisodeBackground}
+                    epBehavior={theirBehavior}
+                    setEpBehavior={setTheirBehavior}
+                  />
 
                   <div className="field-group">
                     <label className="field-label">
@@ -918,7 +1045,7 @@ export default function DecoderPage() {
               )}
 
               {token && freeResult && (
-                <div className="history-memory-card">
+                <div id="history-panel" className="history-memory-card">
                   <div className="contact-memory-header">
                     <div className="field-label">
                       <History size={16} />
@@ -980,6 +1107,9 @@ export default function DecoderPage() {
                 {loading ? <RefreshCw className="animate-spin" size={18} /> : <Sparkles size={18} />}
                 <span>برداشت پیام را رایگان ببینم</span>
               </button>
+              <p className="small" style={{ textAlign: "center", marginTop: 10, color: "var(--ink-faint)" }}>
+                تحلیلِ اول رایگان است{ghostMode ? " · حالت شبح روشن است" : ""}
+              </p>
             </div>
 
             <div className="panel-card results-panel">
@@ -998,7 +1128,9 @@ export default function DecoderPage() {
                 )}
               </div>
 
-              {freeResult ? (
+              {loading && !freeResult ? (
+                <AnalyzingState />
+              ) : freeResult ? (
                 <div className="results-container">
                   <div className="panel-title">
                     <Radar size={19} />
@@ -1009,30 +1141,45 @@ export default function DecoderPage() {
                   </div>
 
                   {freeResult.safety_output && (
-                    <div className="result-card safety-alert-card">
-                      <div className="lens-header">
-                        <span className="lens-badge danger">
-                          <ShieldAlert size={14} /> {freeResult.safety_output.warning_title}
-                        </span>
-                        <span className="confidence-badge">اولویت: {freeResult.safety_output.priority}</span>
+                    <div className="safety-state">
+                      <span style={{ color: "var(--danger)" }}><ShieldAlert size={40} /></span>
+                      <h1 className="title-lg" style={{ marginTop: 6 }}>{freeResult.safety_output.warning_title}</h1>
+                      <p className="ds-pill" style={{ marginTop: 4, color: "#e08178", borderColor: "rgba(184,69,59,0.3)", background: "var(--danger-soft)" }}>اولویت: {freeResult.safety_output.priority}</p>
+                      <p className="body-ink" style={{ marginTop: 10 }}>{freeResult.safety_output.recommendation}</p>
+
+                      <div className="ds-card stack-card" style={{ background: "var(--surface)", borderColor: "rgba(184,69,59,0.3)" }}>
+                        <div className="card-h" style={{ fontSize: 15 }}><MessageCircle size={16} style={{ color: "var(--oxytocin)" }} /> اگر خواستی چیزی بگویی</div>
+                        <div className="reply-text" style={{ marginTop: 8, marginBottom: 0, fontSize: 16 }}>{freeResult.safety_output.suggested_reply}</div>
                       </div>
-                      <h3>اول ایمنی، بعد پاسخ</h3>
-                      <p>{freeResult.safety_output.recommendation}</p>
-                      <div className="reply-bubble">{freeResult.safety_output.suggested_reply}</div>
+
+                      <div className="ds-note" style={{ marginTop: 14, borderColor: "rgba(184,69,59,0.3)", background: "var(--danger-soft)" }}>
+                        <span className="ni" style={{ color: "#e08178" }}><ShieldCheck size={16} /></span>
+                        <span style={{ color: "var(--ink)" }}>از روی یک پیام نمی‌شود قطعی قضاوت کرد. اگر خطرِ فوری حس می‌کنی، او را تنها نگذار و در صورت لزوم از یک فردِ مورد اعتماد یا خط کمک کمک بگیر — خط ملی اورژانس اجتماعی ۱۲۳.</span>
+                      </div>
                     </div>
                   )}
 
-                  {freeResult.free_output && (
+                  {freeResult.free_output && (() => {
+                    const fo = freeResult.free_output;
+                    const mix = fo.lens_mix ?? defaultLensMix(fo.dominant_lens.key);
+                    const tone = fo.tone_stress ?? { label: "مبهم", intensity: 35 };
+                    return (
                     <>
-                      <VisualSignals output={freeResult.free_output} />
+                      {freeResultGhost && (
+                        <div className="ds-card stack-card">
+                          <div className="card-h"><EyeOff size={17} style={{ color: "var(--serotonin)" }} /> این تحلیل در حالت شبح بود</div>
+                          <p className="body">متن و خروجی در تاریخچه ذخیره نشده است. اگر پاسخ کامل بسازید، همان پاسخ هم ذخیره نمی‌شود و فقط ۱ اعتبار مصرف می‌شود.</p>
+                        </div>
+                      )}
 
                       {freeResult.clarifying_question && (
-                        <div className="result-card clarifying-card">
-                          <h3>برای تحلیل دقیق‌تر، یک سؤال</h3>
-                          <p>{freeResult.clarifying_question}</p>
+                        <div className="ds-card stack-card">
+                          <div className="card-h"><MessageCircle size={17} style={{ color: "var(--primary-strong)" }} /> برای تحلیل دقیق‌تر، یک سؤال</div>
+                          <p className="body">{freeResult.clarifying_question}</p>
                           <button
                             type="button"
-                            className="btn-secondary"
+                            className="btn btn-ghost btn-sm btn-block"
+                            style={{ marginTop: 12 }}
                             onClick={() => {
                               setShowAdvancedInputs(true);
                               messageInputRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1043,84 +1190,80 @@ export default function DecoderPage() {
                         </div>
                       )}
 
-                      {freeResultGhost && (
-                        <div className="result-card ghost-result-card">
-                          <h3>این تحلیل در حالت شبح بود</h3>
-                          <p>متن و خروجی در تاریخچه ذخیره نشده است. اگر پاسخ کامل بسازید، همان پاسخ هم ذخیره نمی‌شود و فقط ۱ اعتبار مصرف می‌شود.</p>
+                      <div className="hero-card stack" style={{ gap: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                          <LensChip lens={fo.dominant_lens.key} label={fo.dominant_lens.fa} />
+                          <span className="small">اطمینان: {fo.confidence}</span>
+                        </div>
+                        {fo.message_focus && (
+                          <div className="reply-tag" style={{ margin: 0, background: "var(--oxytocin-soft)", color: "var(--oxytocin)" }}>{fo.message_focus}</div>
+                        )}
+                        <p className="body-ink">{fo.dominant_lens_explanation}</p>
+                        {fo.personalization_note && <p className="body">{fo.personalization_note}</p>}
+                      </div>
+
+                      {fo.situation_arc && (
+                        <div className="ds-card stack-card" style={{ borderColor: "var(--border-hi)" }}>
+                          <div className="card-h"><BookOpenCheck size={17} style={{ color: "var(--primary-strong)" }} /> قوسِ ماجرا — کجا اوضاع چرخید</div>
+                          <p className="body-ink">{fo.situation_arc}</p>
                         </div>
                       )}
 
-                      <div className="result-card hero-result-card">
-                        <div className="lens-header">
-                          <span className="lens-badge">
-                            <Glasses size={14} />
-                            <span>{freeResult.free_output.dominant_lens.fa}</span>
-                          </span>
-                          <span className="confidence-badge">میزان اطمینان: {freeResult.free_output.confidence}</span>
-                        </div>
-                        <h3>برداشت محتمل اصلی</h3>
-                        {freeResult.free_output.message_focus && (
-                          <div className="reply-badge">{freeResult.free_output.message_focus}</div>
-                        )}
-                        <p>{freeResult.free_output.dominant_lens_explanation}</p>
-                        {freeResult.free_output.personalization_note && (
-                          <p>{freeResult.free_output.personalization_note}</p>
-                        )}
+                      <div className="ds-card stack-card">
+                        <div className="card-h"><Radar size={17} style={{ color: "var(--primary-strong)" }} /> رادارِ سه لنز</div>
+                        <LensDonut mix={mix} dominantKey={fo.dominant_lens.key} />
+                        <hr className="ds-hr" style={{ margin: "16px 0 14px" }} />
+                        <div className="card-h" style={{ marginBottom: 12 }}><Activity size={17} style={{ color: "var(--primary-strong)" }} /> دماسنجِ لحن</div>
+                        <ToneMeter value={tone.intensity} label={tone.label} caption={`${faNum(tone.intensity)}٪ فشارِ مکالمه`} />
                       </div>
 
-                      {freeResult.free_output.insight_line && (
-                        <div className="result-card insight-card">
-                          <h3>نکته‌ای که شاید خودت ندیده باشی</h3>
-                          <p>{freeResult.free_output.insight_line}</p>
+                      {fo.insight_line && (
+                        <div className="ds-card stack-card">
+                          <div className="card-h"><Sparkles size={17} style={{ color: "var(--dopamine)" }} /> نکته‌ای که شاید ندیده باشی</div>
+                          <p className="body-ink">{fo.insight_line}</p>
                         </div>
                       )}
 
-                      <div className="result-card warning-card">
-                        <h3>اگر عجولانه جواب دهید</h3>
-                        <p>{freeResult.free_output.conversation_risk}</p>
+                      <div className="ds-card warn stack-card">
+                        <div className="card-h"><AlertCircle size={17} style={{ color: "var(--dopamine)" }} /> اگر عجولانه جواب بدهی</div>
+                        <p className="body-ink">{fo.conversation_risk}</p>
                       </div>
 
-                      <div className="result-card success-card">
-                        <h3>مسیر پاسخ کم‌تنش‌تر</h3>
-                        <p>{freeResult.free_output.recommended_direction}</p>
+                      <div className="ds-card good stack-card">
+                        <div className="card-h"><ShieldCheck size={17} style={{ color: "var(--success)" }} /> مسیرِ پاسخِ کم‌تنش‌تر</div>
+                        <p className="body-ink">{fo.recommended_direction}</p>
                       </div>
 
                       <button
-                        className="secondary-results-toggle"
+                        className="btn btn-ghost btn-block btn-sm"
+                        style={{ marginTop: 14 }}
                         type="button"
                         onClick={() => setShowSecondaryResults((v) => !v)}
                       >
-                        {showSecondaryResults ? "بستن جزئیات ↑" : "جزئیات بیشتر: چرا این برداشت + نیاز پشت پیام + برداشت جایگزین ↓"}
+                        {showSecondaryResults ? "بستن جزئیات" : "جزئیاتِ بیشتر: چرا، نیازِ پنهان، برداشتِ جایگزین"}
                       </button>
 
                       {showSecondaryResults && (
-                        <div className="secondary-results">
-                          {freeResult.free_output.situation_arc && (
-                            <div className="result-card">
-                              <h3>قوس ماجرا: کجا اوضاع تغییر کرد</h3>
-                              <p>{freeResult.free_output.situation_arc}</p>
-                            </div>
-                          )}
-
-                          <div className="result-card">
-                            <h3>چرا این برداشت محتمل است؟</h3>
-                            <p>{freeResult.free_output.why_this_lens}</p>
+                        <div className="stack" style={{ marginTop: 12 }}>
+                          <div className="ds-card stack-card">
+                            <div className="card-h" style={{ fontSize: 15 }}>چرا این برداشت محتمل است؟</div>
+                            <p className="body">{fo.why_this_lens}</p>
                           </div>
 
-                          <div className="result-card">
-                            <h3>نیاز یا نگرانی پشت پیام</h3>
-                            <p>{freeResult.free_output.likely_underlying_need}</p>
+                          <div className="ds-card stack-card">
+                            <div className="card-h" style={{ fontSize: 15 }}>نیاز یا نگرانی پشت پیام</div>
+                            <p className="body">{fo.likely_underlying_need}</p>
                           </div>
 
-                          <div className="result-card">
-                            <h3>برداشت جایگزین</h3>
-                            <p>{freeResult.free_output.alternative_read}</p>
+                          <div className="ds-card stack-card">
+                            <div className="card-h" style={{ fontSize: 15 }}>برداشتِ جایگزین</div>
+                            <p className="body">{fo.alternative_read}</p>
                           </div>
 
-                          {freeResult.free_output.privacy_warning && (
-                            <div className="result-card danger-card">
-                              <h3>نکته حریم خصوصی</h3>
-                              <p>{freeResult.free_output.privacy_warning}</p>
+                          {fo.privacy_warning && (
+                            <div className="ds-card danger stack-card">
+                              <div className="card-h" style={{ fontSize: 15 }}>نکته حریم خصوصی</div>
+                              <p className="body">{fo.privacy_warning}</p>
                             </div>
                           )}
                         </div>
@@ -1176,15 +1319,33 @@ export default function DecoderPage() {
                               </div>
 
                               {otpSent && (
-                                <div className="auth-row">
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    autoComplete="one-time-code"
-                                    placeholder="کد ورود"
-                                    value={otp}
-                                    onChange={(event) => setOtp(event.target.value)}
-                                  />
+                                <div className="enter" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                  <div style={{ position: "relative" }}>
+                                    <div className="seg" style={{ direction: "ltr", justifyContent: "center", padding: 8, gap: 8, background: "transparent", border: "none" }}>
+                                      {[0, 1, 2, 3].map((i) => (
+                                        <div key={i} style={{
+                                          width: 46, height: 54, borderRadius: 12,
+                                          background: "var(--surface-alt)",
+                                          border: `1.5px solid ${i < otp.length ? "var(--primary)" : "var(--border)"}`,
+                                          display: "grid", placeItems: "center",
+                                          fontFamily: "var(--font-head)", fontWeight: 800, fontSize: 22,
+                                          color: "var(--ink)", transition: "border-color 0.15s"
+                                        }}>
+                                          {otp[i] ? faNum(otp[i]) : ""}
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <input
+                                      type="tel"
+                                      inputMode="numeric"
+                                      autoComplete="one-time-code"
+                                      maxLength={4}
+                                      value={otp}
+                                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                                      aria-label="کد ورود ۴ رقمی"
+                                      style={{ position: "absolute", inset: 0, opacity: 0, cursor: "text", width: "100%", height: "100%" }}
+                                    />
+                                  </div>
                                   <button className="btn-primary btn-compact" onClick={handleVerify}>
                                     ورود و فعال‌سازی اعتبار
                                   </button>
@@ -1198,6 +1359,9 @@ export default function DecoderPage() {
                                   onChange={(event) => setReferralCode(event.target.value.toUpperCase())}
                                 />
                               </div>
+                              <p className="small" style={{ textAlign: "center", color: "var(--ink-faint)", marginTop: 2 }}>
+                                بدونِ فشار. هر وقت آماده بودی. شماره فقط برای نگه‌داشتنِ اعتبار است.
+                              </p>
                               <Link className="auth-free-link" href="/signup">
                                 <UserPlus size={15} />
                                 <span>جزئیات حساب و کد معرفی را ببینم</span>
@@ -1222,7 +1386,8 @@ export default function DecoderPage() {
                         </div>
                       )}
                     </>
-                  )}
+                    );
+                  })()}
 
                   {paidResult && (
                     <div className="deep-results">
@@ -1231,33 +1396,31 @@ export default function DecoderPage() {
                         <span>پاسخ‌های آماده، قابل ویرایش و ارسال</span>
                       </div>
 
-                      <div className="result-card">
-                        <h3>خلاصه عمیق‌تر قبل از ارسال</h3>
-                        <p>{paidResult.paid_output.deep_read}</p>
+                      <div className="ds-card stack-card">
+                        <div className="card-h"><Glasses size={17} style={{ color: "var(--oxytocin)" }} /> خلاصهٔ عمیق‌تر</div>
+                        <p className="body-ink">{paidResult.paid_output.deep_read}</p>
                         {paidResult.paid_output.personalization_note && (
-                          <p>{paidResult.paid_output.personalization_note}</p>
+                          <p className="body">{paidResult.paid_output.personalization_note}</p>
                         )}
                       </div>
 
+                      <div className="stack-lg">
                       {paidResult.paid_output.reply_options.map((reply) => (
-                        <div className="reply-option-card" key={reply.label}>
-                          <div className="reply-badge">{reply.label}</div>
-                          <div className="reply-bubble">{reply.text}</div>
-                          <div className="reply-why">
-                            <strong>چرا احتمالاً کم‌ریسک‌تر است:</strong> {reply.why_it_works}
+                        <div className="reply-card" key={reply.label}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span className="reply-tag" style={{ margin: 0 }}><MessageCircle size={14} /> {reply.label}</span>
+                            {reply.reaction_forecast && <RiskPill level={reply.reaction_forecast.risk_level} />}
                           </div>
+                          <div className="reply-text" style={{ marginTop: 12 }}>{reply.text}</div>
                           {(reply.reaction_forecast || reply.reaction_prediction) && (
-                            <div className="reaction-simulator">
-                              <MessageCircle size={14} />
-                              <div>
-                                <strong>شبیه‌ساز واکنش</strong>
+                            <div className="reaction">
+                              <span style={{ color: "var(--primary-strong)", flex: "0 0 auto", marginTop: 1 }}><Radar size={16} /></span>
+                              <div className="r-body">
+                                <strong>شبیه‌سازِ واکنش</strong>
                                 {reply.reaction_forecast ? (
                                   <>
-                                    <span className={`risk-chip risk-${reply.reaction_forecast.risk_level}`}>
-                                      ریسک: {reply.reaction_forecast.risk_level}
-                                    </span>
-                                    <span>{reply.reaction_forecast.likely_reaction}</span>
-                                    <span className="reaction-reason">{reply.reaction_forecast.reason}</span>
+                                    <span>{reply.reaction_forecast.likely_reaction} </span>
+                                    <span className="faint">{reply.reaction_forecast.reason}</span>
                                   </>
                                 ) : (
                                   <span>{reply.reaction_prediction}</span>
@@ -1265,32 +1428,28 @@ export default function DecoderPage() {
                               </div>
                             </div>
                           )}
-                          {!freeResultGhost && (
-                            <button className="mini-action selected-reply-action" type="button" onClick={() => handleSelectedReply(reply.label)}>
-                              این گزینه را انتخاب کردم
-                            </button>
+                          {reply.why_it_works && (
+                            <p className="small" style={{ marginBottom: 12 }}>
+                              <strong style={{ color: "var(--ink)" }}>چرا کم‌ریسک‌تر است: </strong>{reply.why_it_works}
+                            </p>
                           )}
-                          <button className="btn-secondary copy-btn" onClick={() => handleCopy(reply.text, reply.label)}>
-                            {copiedIndex === reply.label ? (
-                              <>
-                                <Check size={14} />
-                                <span>کپی شد</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy size={14} />
-                                <span>این پاسخ را کپی کنم</span>
-                              </>
+                          <div className="reply-actions">
+                            <button className="btn btn-soft btn-sm" style={{ flex: 1 }} onClick={() => handleCopy(reply.text, reply.label)}>
+                              {copiedIndex === reply.label ? (<><Check size={15} /> کپی شد</>) : (<><Copy size={15} /> کپی</>)}
+                            </button>
+                            {!freeResultGhost && (
+                              <button className="btn btn-ghost btn-sm" type="button" onClick={() => handleSelectedReply(reply.label)}>
+                                این را انتخاب کردم
+                              </button>
                             )}
-                          </button>
-
-                          <div className="tone-edit-row">
-                            <span className="tone-edit-label">لحن را عوض کن:</span>
+                          </div>
+                          <div className="tone-row">
+                            <span className="tlabel">لحن:</span>
                             {toneOptions.map(([tone, label]) => (
                               <button
                                 key={tone}
                                 type="button"
-                                className="tone-edit-btn"
+                                className="tone-btn"
                                 disabled={toneLoading === `${reply.label}:${tone}`}
                                 onClick={() => handleToneEdit(reply.label, reply.text, tone)}
                               >
@@ -1300,33 +1459,25 @@ export default function DecoderPage() {
                           </div>
 
                           {toneEdits[reply.label] && (
-                            <div className="tone-edit-result">
-                              <div className="tone-edit-result-badge">نسخه {toneEdits[reply.label].tone_label}</div>
-                              <div className="reply-bubble">{toneEdits[reply.label].text}</div>
+                            <div className="reply-text" style={{ marginTop: 12, marginBottom: 0 }}>
+                              <div className="reply-tag" style={{ margin: "0 0 10px" }}>نسخهٔ {toneEdits[reply.label].tone_label}</div>
+                              {toneEdits[reply.label].text}
                               <button
-                                className="btn-secondary copy-btn"
+                                className="btn btn-soft btn-sm btn-block"
+                                style={{ marginTop: 12 }}
                                 onClick={() => handleCopy(toneEdits[reply.label].text, `${reply.label}-tone`)}
                               >
-                                {copiedIndex === `${reply.label}-tone` ? (
-                                  <>
-                                    <Check size={14} />
-                                    <span>کپی شد</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy size={14} />
-                                    <span>کپی نسخه ویرایش‌شده</span>
-                                  </>
-                                )}
+                                {copiedIndex === `${reply.label}-tone` ? (<><Check size={15} /> کپی شد</>) : (<><Copy size={15} /> کپی نسخه ویرایش‌شده</>)}
                               </button>
                             </div>
                           )}
                         </div>
                       ))}
+                      </div>
 
-                      <div className="result-card danger-card">
-                        <h3>کلماتی که ممکن است تنش را بیشتر کنند</h3>
-                        <div className="words-avoid-container">
+                      <div className="ds-card danger stack-card">
+                        <div className="card-h"><AlertCircle size={17} style={{ color: "var(--danger)" }} /> کلماتی که تنش را بیشتر می‌کنند</div>
+                        <div className="word-tags" style={{ marginTop: 4 }}>
                           {paidResult.paid_output.words_to_avoid.map((word, i) => (
                             <span className="word-tag" key={i}>
                               {word}
@@ -1335,9 +1486,9 @@ export default function DecoderPage() {
                         </div>
                       </div>
 
-                      <div className="result-card before-send-card">
-                        <h3>بررسی قبل از ارسال</h3>
-                        <p>متنی که می‌خواهی بفرستی را اینجا بگذار تا ریسک واکنش منفی و نکات قابل بهبودش را قبل از ارسال ببینی.</p>
+                      <div className="ds-card before-send-card stack-card">
+                        <div className="card-h"><ShieldCheck size={17} style={{ color: "var(--primary-strong)" }} /> بررسی قبل از ارسال</div>
+                        <p className="small" style={{ marginBottom: 10 }}>متنی که می‌خواهی بفرستی را اینجا بگذار تا ریسک واکنش منفی و نکات قابل بهبودش را قبل از ارسال ببینی.</p>
                         <textarea
                           className="before-send-input"
                           value={draftText}
@@ -1438,88 +1589,124 @@ export default function DecoderPage() {
 }
 
 type FreeOutput = NonNullable<FreeDecodeResponse["free_output"]>;
+type LensKey = "dopamine" | "oxytocin" | "serotonin";
 
-// Colors reference the design tokens (T21) instead of re-declaring raw hex.
-const lensMeta = {
-  dopamine: { label: "هدف و کنترل", color: "var(--cds-lens-dopamine)" },
-  oxytocin: { label: "امنیت و اعتماد", color: "var(--cds-lens-oxytocin)" },
-  serotonin: { label: "شأن و احترام", color: "var(--cds-lens-serotonin)" }
-} as const;
+// Canonical lens mapping (matches the design prototype).
+const lensMeta: Record<LensKey, { label: string; color: string }> = {
+  dopamine: { label: "هدف و کنترل", color: "var(--dopamine)" },
+  oxytocin: { label: "امنیت و اعتماد", color: "var(--oxytocin)" },
+  serotonin: { label: "شأن و احترام", color: "var(--serotonin)" }
+};
+const LENS_ORDER: LensKey[] = ["dopamine", "oxytocin", "serotonin"];
 
-function VisualSignals({ output }: { output: FreeOutput }) {
-  const lensMix = output.lens_mix ?? defaultLensMix(output.dominant_lens.key);
-  const toneStress = output.tone_stress ?? { label: "مبهم", intensity: 35 };
-
+// Aperture-ring lens motif: abstract shape inside a shared diaphragm ring.
+function ApertureGlyph({ lens, size = 20 }: { lens: string; size?: number }) {
+  const inner: Record<string, React.ReactNode> = {
+    dopamine: <path d="M12 7.5 13.8 11l3.7.6-2.7 2.6.6 3.7L12 16.2 8.6 18l.6-3.7L6.5 11.6l3.7-.6L12 7.5Z" />,
+    oxytocin: <path d="M12 16.5s-4-2.6-4-5.4A2.2 2.2 0 0 1 12 9.6a2.2 2.2 0 0 1 4 1.5c0 2.8-4 5.4-4 5.4Z" />,
+    serotonin: (
+      <>
+        <circle cx="12" cy="11.5" r="2.4" />
+        <path d="M9 16.5c.8-1.2 1.8-1.8 3-1.8s2.2.6 3 1.8" />
+      </>
+    )
+  };
   return (
-    <div className="visual-signals">
-      <div className="result-card radar-card">
-        <div className="visual-title">
-          <Radar size={16} />
-          <h3>رادار سه لنز</h3>
-        </div>
-        <LensDonut mix={lensMix} dominantKey={output.dominant_lens.key} />
-      </div>
+    <svg
+      className="aperture"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9.2" />
+      <path d="M12 2.8 17 5.5M21.2 12l-2.7 4.8M12 21.2 7 18.5M2.8 12l2.7-4.8" opacity="0.55" />
+      {inner[lens] ?? inner.oxytocin}
+    </svg>
+  );
+}
 
-      <div className="result-card tone-card">
-        <div className="visual-title">
-          <Activity size={16} />
-          <h3>دماسنج لحن</h3>
-        </div>
-        <div className="tone-meter">
-          <div className="tone-meter-track">
-            <div className="tone-meter-fill" style={{ width: `${toneStress.intensity}%` }} />
-          </div>
-          <div className="tone-meter-meta">
-            <strong>{toneStress.label}</strong>
-            <span>{faNum(toneStress.intensity)}٪ فشار مکالمه</span>
-          </div>
-        </div>
+function LensChip({ lens, label }: { lens: string; label: string }) {
+  return (
+    <span className={`lens-chip ${lens}`}>
+      <ApertureGlyph lens={lens} size={20} />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function RiskPill({ level }: { level: string }) {
+  const map: Record<string, [string, string]> = {
+    low: ["کم‌ریسک", "risk-low"],
+    mid: ["ریسکِ متوسط", "risk-mid"],
+    high: ["پرریسک", "risk-high"],
+    کم: ["کم‌ریسک", "risk-low"],
+    متوسط: ["ریسکِ متوسط", "risk-mid"],
+    زیاد: ["پرریسک", "risk-high"]
+  };
+  const [text, cls] = map[level] ?? map.mid;
+  return <span className={`risk-pill ${cls}`}>{text}</span>;
+}
+
+function ToneMeter({ value, label, caption }: { value: number; label: string; caption: string }) {
+  return (
+    <div>
+      <div className="ds-meter-track">
+        <div className="ds-meter-fill warm" style={{ width: `${value}%` }} />
+      </div>
+      <div className="ds-meter-meta">
+        <strong>{label}</strong>
+        <span>{caption}</span>
       </div>
     </div>
   );
 }
 
-function LensDonut({ mix, dominantKey }: { mix: Required<FreeOutput>["lens_mix"]; dominantKey: string }) {
-  const dopamine = mix.dopamine;
-  const oxytocin = mix.oxytocin;
-  const serotonin = mix.serotonin;
-  const slices = [
-    { key: "dopamine", value: dopamine, offset: 0 },
-    { key: "oxytocin", value: oxytocin, offset: -dopamine },
-    { key: "serotonin", value: serotonin, offset: -(dopamine + oxytocin) }
-  ] as const;
-
+function LensDonut({ mix, dominantKey }: { mix: Record<LensKey, number>; dominantKey: string }) {
+  const C = 2 * Math.PI * 53;
+  let acc = 0;
   return (
-    <div className="lens-donut-layout">
-      <svg className="lens-donut" viewBox="0 0 140 140" role="img" aria-label="رادار سهم لنزها">
-        <circle className="lens-donut-bg" cx="70" cy="70" r="48" pathLength="100" />
-        {slices.map((slice) => (
-          <circle
-            key={slice.key}
-            className="lens-donut-slice"
-            cx="70"
-            cy="70"
-            r="48"
-            pathLength="100"
-            stroke={lensMeta[slice.key].color}
-            strokeDasharray={`${slice.value} ${100 - slice.value}`}
-            strokeDashoffset={slice.offset}
-          />
-        ))}
-        <text x="70" y="66" textAnchor="middle" className="lens-donut-number">
-          {faNum(mix[dominantKey as keyof typeof mix])}٪
-        </text>
-        <text x="70" y="84" textAnchor="middle" className="lens-donut-label">
-          لنز غالب
-        </text>
+    <div className="donut-wrap">
+      <svg className="donut" viewBox="0 0 140 140" role="img" aria-label="رادار سهم لنزها">
+        <circle className="donut-bg" cx="70" cy="70" r="53" />
+        {LENS_ORDER.map((key) => {
+          const frac = (mix[key] || 0) / 100;
+          const dash = `${frac * C} ${C - frac * C}`;
+          const off = -acc * C;
+          acc += frac;
+          return (
+            <circle
+              key={key}
+              className="donut-slice"
+              cx="70"
+              cy="70"
+              r="53"
+              stroke={lensMeta[key].color}
+              strokeDasharray={dash}
+              strokeDashoffset={off}
+            />
+          );
+        })}
+        <g className="donut-center">
+          <text className="donut-num" x="70" y="68" textAnchor="middle">
+            {faNum(mix[dominantKey as LensKey] ?? 0)}٪
+          </text>
+          <text className="donut-cap" x="70" y="86" textAnchor="middle">
+            لنز غالب
+          </text>
+        </g>
       </svg>
-
-      <div className="lens-mix-list">
-        {(Object.keys(lensMeta) as Array<keyof typeof lensMeta>).map((key) => (
-          <div className="lens-mix-row" key={key}>
-            <span className="lens-dot" style={{ backgroundColor: lensMeta[key].color }} />
-            <span>{lensMeta[key].label}</span>
-            <strong>{faNum(mix[key])}٪</strong>
+      <div className="mix-list">
+        {LENS_ORDER.map((key) => (
+          <div className="mix-row" key={key}>
+            <span className="ldot" style={{ background: lensMeta[key].color }} />
+            <span className="mname">{lensMeta[key].label}</span>
+            <strong>{faNum(mix[key] || 0)}٪</strong>
           </div>
         ))}
       </div>
@@ -1536,6 +1723,104 @@ function defaultLensMix(dominantKey: string): Required<FreeOutput>["lens_mix"] {
   }
   return { dopamine: 15, oxytocin: 70, serotonin: 15 };
 }
+
+// ---- Analyzing "breath" moment (matches the design prototype) ----
+const ANALYZING_LINES = [
+  "دارم پیام را در زمینهٔ رابطه می‌بینم…",
+  "لحن و نیازِ زیرین را می‌سنجم…",
+  "ریسکِ جوابِ عجولانه را تخمین می‌زنم…"
+];
+
+function AnalyzingState() {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % ANALYZING_LINES.length), 1100);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="analyzing-state">
+      <div className="breath-orb"><div className="core" /></div>
+      <div className="analyzing-copy">
+        <h2 className="title">یک نفس بکش</h2>
+        <p className="body" key={i}>{ANALYZING_LINES[i]}</p>
+      </div>
+    </div>
+  );
+}
+
+// ---- Demo seed (preview only; matches the design prototype sample) ----
+const DEMO_SAMPLE = { message: "نه بابا، مهم نیست. باشه یه وقت دیگه. می‌دونم سرت شلوغه." };
+
+const DEMO_FREE: FreeDecodeResponse = {
+  decode_id: "demo",
+  safety_label: "none",
+  prompt_version: "",
+  model_version: "",
+  clarifying_question: null,
+  free_output: {
+    dominant_lens: { fa: "امنیت و اعتماد", en: "Oxytocin", key: "oxytocin" },
+    dominant_lens_explanation:
+      "این جمله بیش از آنکه واقعاً «بی‌خیال» باشد، یک عقب‌نشینیِ مودبانه است. «می‌دونم سرت شلوغه» نیمه‌تعارف است و زیرش این پیام را دارد: حس می‌کنم دیگر در اولویتت نیستم.",
+    why_this_lens:
+      "کلیدواژه‌ها («مهم نیست»، «یه وقت دیگه»، «سرت شلوغه») حول جایگاه و اولویت در رابطه‌اند، نه یک خواستهٔ مشخصِ عملی.",
+    message_focus: "بزرگواریِ ظاهری روی دلخوریِ نادیده‌گرفته‌شدن",
+    personalization_note: null,
+    secondary_lenses: [],
+    lens_mix: { dopamine: 12, oxytocin: 52, serotonin: 36 },
+    tone_stress: { label: "تسلیمِ دلخور", intensity: 56 },
+    likely_underlying_need:
+      "نیاز به مطمئن‌شدن از اینکه هنوز برایت ارزش و اولویت دارد؛ ترسِ زیرین: شاید برایت مهم نیست.",
+    conversation_risk:
+      "اگر فقط بپذیری («باشه، یه وقت دیگه») یا توضیحِ طولانیِ گرفتاری‌ات را بدهی، آن را تأییدِ بی‌اهمیتی می‌خواند و دفعهٔ بعد دیگر پیش‌قدم نمی‌شود.",
+    recommended_direction:
+      "دلخوریِ پشتِ تعارف را به‌رسمیت بشناس و خودت یک زمانِ مشخص و قطعی پیشنهاد بده؛ ابتکار را به دست بگیر، نه عذرخواهیِ طولانی.",
+    confidence: "نسبتاً مطمئن",
+    alternative_read:
+      "ممکن است واقعاً درگیر باشد و این جمله فقط یک تعارفِ سادهٔ بی‌منظور باشد، نه گلایه.",
+    insight_line:
+      "«مهم نیست» اینجا یعنی «مهم بود». وقتی کسی توقعش را پایین می‌آورد، معمولاً برای این است که دیگر نمی‌خواهد ناامید شود.",
+    situation_arc:
+      "از یک جابه‌جاییِ سادهٔ قرار شروع شده، ولی چون چند بار تکرار شده، حالا به حسِ «انگار اولویت نیستم» رسیده.",
+    privacy_warning: null,
+    cta: ""
+  },
+  safety_output: null
+};
+
+const DEMO_PAID: PaidDecodeResponse = {
+  decode_id: "demo",
+  credit_balance: 4,
+  paid_output: {
+    deep_read:
+      "زیرِ این «مهم نیست»، یک درخواست هست: «بهم نشون بده هنوز برات در اولویتم». بهترین پاسخ، حرف نیست — یک پیشنهادِ زمانِ مشخص و قطعی است که ابتکار را خودت به دست بگیری.",
+    personalization_note: null,
+    reply_options: [
+      {
+        label: "گرم + زمانِ قطعی",
+        text: "راست می‌گی، چند بار عقب افتاد و این اصلاً منصفانه نیست. خودم یه روزِ قطعی می‌ذارم که این‌بار حتماً بشه — پنجشنبه عصر خوبه برات؟",
+        why_it_works: "هم دلخوری را می‌پذیرد، هم با پیشنهادِ زمانِ مشخص ثابت می‌کند که اولویت است.",
+        reaction_forecast: { likely_reaction: "احتمالاً لحنش باز می‌شود و قرار را قطعی می‌کند.", reason: "چون به‌جای تعارف، یک اقدامِ واقعی دید.", risk_level: "کم" }
+      },
+      {
+        label: "صادق و کوتاه",
+        text: "می‌دونم چند بار جور نشد و حق داری دلخور باشی. تو برام مهمی؛ بذار این‌بار خودم برنامه‌ریزیش کنم.",
+        why_it_works: "مسئولیت را می‌پذیرد و ابتکار را به‌دست می‌گیرد، بدون توجیهِ طولانی.",
+        reaction_forecast: { likely_reaction: "ممکن است اول کوتاه جواب دهد، ولی توقعِ پایین‌آمده‌اش بالا می‌رود.", reason: "اطمینان هست، اما هنوز زمانِ مشخص نگذاشته‌ای.", risk_level: "متوسط" }
+      },
+      {
+        label: "ساده و بی‌تعارف",
+        text: "نگو مهم نیست، چون برای من مهمه. بیا یه وقتی که واقعاً برای جفتمون جور باشه پیدا کنیم و این‌بار نذاریم بپره.",
+        why_it_works: "تعارف را رد می‌کند و رابطه را در اولویت می‌گذارد.",
+        reaction_forecast: { likely_reaction: "شاید کمی جا بخورد، ولی حس می‌کند دیده شده.", reason: "نشان می‌دهد عقب‌افتادن از بی‌اهمیتی نبوده.", risk_level: "متوسط" }
+      }
+    ],
+    words_to_avoid: ["همیشه همینه", "تو هم که هیچ‌وقت", "گیر نده", "بی‌خیال", "حالا یه باره دیگه"],
+    safe_opening_line: "",
+    copy_ready_reply: "",
+    attribution_reply: null,
+    follow_up_question: ""
+  }
+};
 
 function lensLabelFa(value: string) {
   return ({
