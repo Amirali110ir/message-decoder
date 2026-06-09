@@ -8,6 +8,7 @@ import {
   BookOpenCheck,
   BrainCircuit,
   Check,
+  ChevronDown,
   Copy,
   CreditCard,
   EyeOff,
@@ -20,6 +21,7 @@ import {
   MessageCircle,
   MessageSquareCode,
   MessageSquareText,
+  Pencil,
   Radar,
   RefreshCw,
   Save,
@@ -255,7 +257,8 @@ export default function DecoderPage() {
   const [freeResult, setFreeResult] = useState<FreeDecodeResponse | null>(null);
   const [freeResultGhost, setFreeResultGhost] = useState(false);
   const [paidResult, setPaidResult] = useState<PaidDecodeResponse | null>(null);
-  const [showAdvancedInputs, setShowAdvancedInputs] = useState(false);
+  const [showStory, setShowStory] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [historyItems, setHistoryItems] = useState<DecodeHistoryItem[]>([]);
   const [selectedContactId, setSelectedContactId] = useState("");
@@ -900,61 +903,141 @@ export default function DecoderPage() {
                 </div>
               </div>
 
-              <button
-                className="mini-action advanced-toggle"
-                type="button"
-                onClick={() => setShowAdvancedInputs((value) => !value)}
-              >
-                {showAdvancedInputs ? "بستن گزینه‌های بیشتر" : "زمینه یا حریم خصوصی را تنظیم کنم"}
-              </button>
+              {/* ── دو ورودی مجزا: زمینه داستان / حریم خصوصی ──────────── */}
+              <div className="extras-row">
 
-              {showAdvancedInputs && (
-                <div className="advanced-inputs">
+                {/* ۱. زمینه داستان */}
+                <button
+                  className={`extra-entry ctx${showStory ? " open" : ""}`}
+                  type="button"
+                  onClick={() => setShowStory((v) => !v)}
+                  aria-expanded={showStory}
+                >
+                  <div className="ee-top">
+                    <span className="ee-ic ctx">
+                      <Pencil size={14} />
+                    </span>
+                    <span className="ee-title">زمینه داستان</span>
+                    <ChevronDown size={13} className="ee-chev" />
+                  </div>
+                  <span className="ee-sub">بگو چه اتفاقی افتاده</span>
+                  {(context.trim() || thread.length > 0) ? (
+                    <span className="ee-pill ctx has">
+                      {thread.length > 0 ? `${thread.length} پیام + متن` : "زمینه اضافه شد"}
+                    </span>
+                  ) : (
+                    <span className="ee-pill">بدون زمینه</span>
+                  )}
+                </button>
+
+                {/* ۲. حریم خصوصی */}
+                <button
+                  className={`extra-entry prv${showPrivacy ? " open" : ""}`}
+                  type="button"
+                  onClick={() => setShowPrivacy((v) => !v)}
+                  aria-expanded={showPrivacy}
+                >
+                  <div className="ee-top">
+                    <span className="ee-ic prv">
+                      <ShieldCheck size={14} />
+                    </span>
+                    <span className="ee-title">حریم خصوصی</span>
+                    <ChevronDown size={13} className="ee-chev" />
+                  </div>
+                  <span className="ee-sub">کنترل داده‌ات</span>
+                  {ghostMode ? (
+                    <span className="ee-pill prv on">👻 شبح</span>
+                  ) : consent === "none" ? (
+                    <span className="ee-pill">پیش‌فرض</span>
+                  ) : (
+                    <span className="ee-pill prv on">بدون ذخیره داده</span>
+                  )}
+                </button>
+
+              </div>
+
+              {/* ── پنل زمینه داستان ─────────────────────────────────────── */}
+              {showStory && (
+                <div className="story-panel">
+                  <div className="story-panel-hd">
+                    <span className="story-panel-ic"><Pencil size={16} /></span>
+                    <div>
+                      <h4>داستانت را بگو</h4>
+                      <p>چند جمله درباره رابطه، موقعیت، یا اتفاق — هر چه بیشتر بدانم دقیق‌تر کمک می‌کنم.</p>
+                    </div>
+                  </div>
+
                   <div className="field-group">
-                    <label className="field-label">
-                      <Fingerprint size={16} />
-                      <span>زمینه کوتاه، اگر کمک می‌کند</span>
-                    </label>
                     <input
+                      className="field"
                       value={context}
-                      onChange={(event) => setContext(event.target.value)}
+                      onChange={(e) => setContext(e.target.value)}
                       placeholder="مثلاً: بعد از اینکه دیر جواب دادم این پیام را فرستاد..."
                     />
+                    <span className="field-hint">اختیاری — پیام بدون زمینه هم تحلیل می‌شود.</span>
                   </div>
 
-                  <EpisodeBuilder
-                    thread={thread}
-                    setThread={setThread}
-                    epBackground={episodeBackground}
-                    setEpBackground={setEpisodeBackground}
-                    epBehavior={theirBehavior}
-                    setEpBehavior={setTheirBehavior}
-                  />
+                  <details className="ep-expander">
+                    <summary>اضافه کردن گفتگوی قبلی</summary>
+                    <div className="ep-expander-body">
+                      <EpisodeBuilder
+                        thread={thread}
+                        setThread={setThread}
+                        epBackground={episodeBackground}
+                        setEpBackground={setEpisodeBackground}
+                        epBehavior={theirBehavior}
+                        setEpBehavior={setTheirBehavior}
+                      />
+                    </div>
+                  </details>
+                </div>
+              )}
+
+              {/* ── پنل حریم خصوصی ──────────────────────────────────────── */}
+              {showPrivacy && (
+                <div className="privacy-panel">
+                  <div className="privacy-panel-hd">
+                    <span className="privacy-panel-ic"><ShieldCheck size={16} /></span>
+                    <div>
+                      <h4>کنترل داده‌ات</h4>
+                      <p>مشخص کن این تحلیل چطور استفاده شود.</p>
+                    </div>
+                  </div>
 
                   <div className="field-group">
                     <label className="field-label">
-                      <EyeOff size={16} />
-                      <span>حریم خصوصی</span>
+                      <EyeOff size={15} />
+                      <span>آیا موافقی داده‌ات برای بهبود مدل استفاده شود؟</span>
                     </label>
-                    <select value={consent} onChange={(event) => setConsent(event.target.value as never)}>
-                      <option value="none">پیام را ذخیره نکن.</option>
-                      <option value="history">در تاریخچه حساب من نگه دار.</option>
-                      <option value="anonymized">بدون نام برای بهتر شدن تحلیل‌ها استفاده کن.</option>
-                    </select>
+                    <div className="consent-chips">
+                      <button
+                        type="button"
+                        className={`consent-chip${consent === "anonymized" ? " active" : ""}`}
+                        onClick={() => setConsent("anonymized")}
+                      >بله، بدون نام</button>
+                      <button
+                        type="button"
+                        className={`consent-chip${consent === "history" ? " active" : ""}`}
+                        onClick={() => setConsent("history")}
+                      >ذخیره در تاریخچه من</button>
+                      <button
+                        type="button"
+                        className={`consent-chip${consent === "none" ? " active" : ""}`}
+                        onClick={() => setConsent("none")}
+                      >فقط پردازش، بدون ذخیره</button>
+                    </div>
                   </div>
 
-                  <label className={`ghost-toggle ${ghostMode ? "active" : ""}`}>
+                  <label className={`ghost-toggle${ghostMode ? " active" : ""}`}>
                     <input
                       type="checkbox"
                       checked={ghostMode}
-                      onChange={(event) => setGhostMode(event.target.checked)}
+                      onChange={(e) => setGhostMode(e.target.checked)}
                     />
-                    <span className="ghost-toggle-icon">
-                      <ShieldCheck size={18} />
-                    </span>
+                    <span className="ghost-toggle-icon"><ShieldCheck size={18} /></span>
                     <span>
                       <strong>حالت شبح</strong>
-                      <small>تحلیل و پاسخ کامل در تاریخچه ذخیره نمی‌شود. فقط برای ساخت پاسخ، همین صفحه از متن استفاده می‌کند.</small>
+                      <small>تحلیل و پاسخ کامل در تاریخچه ذخیره نمی‌شود.</small>
                     </span>
                   </label>
                 </div>
@@ -1181,7 +1264,7 @@ export default function DecoderPage() {
                             className="btn btn-ghost btn-sm btn-block"
                             style={{ marginTop: 12 }}
                             onClick={() => {
-                              setShowAdvancedInputs(true);
+                              setShowStory(true);
                               messageInputRef.current?.scrollIntoView({ behavior: "smooth" });
                             }}
                           >
