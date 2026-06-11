@@ -34,6 +34,10 @@ class Settings:
     ai_paid_temperature: float = field(default_factory=lambda: float(os.getenv("AI_PAID_TEMPERATURE", "0.4")))
     # Penalises token repetition so replies feel varied (0 = off, 1 = maximum)
     ai_frequency_penalty: float = field(default_factory=lambda: float(os.getenv("AI_FREQUENCY_PENALTY", "0.4")))
+    # Hard cap on output tokens to prevent runaway generation and control cost.
+    # Free: analysis only (no replies). Paid: 5 reply options + supporting fields.
+    ai_free_max_tokens: int = field(default_factory=lambda: int(os.getenv("AI_FREE_MAX_TOKENS", "1200")))
+    ai_paid_max_tokens: int = field(default_factory=lambda: int(os.getenv("AI_PAID_MAX_TOKENS", "2500")))
     # Paid self-critique pass (generate→critique→revise). Default on for quality.
     # When off, the always-on quality critique is skipped to halve paid latency,
     # but forbidden phrases are STILL scrubbed (the inspector runs regardless).

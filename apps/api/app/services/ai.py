@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import re
 from typing import Any
 
@@ -23,6 +25,11 @@ from app.utils import has_sensitive_info
 
 PROMPT_VERSION = "message-decoder-system-v0.4"
 MODEL_VERSION = "mock-v0.1"
+
+logger = logging.getLogger(__name__)
+
+# Retry delays (seconds) for transient AI API failures.
+_AI_RETRY_DELAYS: tuple[int, ...] = (2, 4)
 OUTPUT_SCHEMA_VERSION = "decode-schema-v0.4"
 
 
@@ -756,7 +763,8 @@ async def _free_decode_with_ai(
         set_cached_response(task="free_decode", cache_key=cache_key, response=data, model_used=_model_for_task("free"))
     try:
         return FreeDecodeOutput.model_validate(data)
-    except Exception:
+    except Exception as exc:
+        logger.error("free_decode schema validation failed: %s | keys=%s", exc, list(data.keys()))
         return None
 
 
@@ -910,7 +918,8 @@ async def _paid_decode_with_ai(
         set_cached_response(task="paid_decode", cache_key=cache_key, response=data, model_used=_model_for_task("paid"))
     try:
         return PaidDecodeOutput.model_validate(data)
-    except Exception:
+    except Exception as exc:
+        logger.error("paid_decode schema validation failed: %s | keys=%s", exc, list(data.keys()))
         return None
 
 
@@ -974,6 +983,7 @@ async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> 
     endpoint_base = settings.ai_paid_api_base_url if is_paid else settings.ai_api_base_url
     api_key = settings.ai_paid_api_key if is_paid else settings.ai_api_key
     temperature = settings.ai_paid_temperature if is_paid else settings.ai_free_temperature
+    max_tokens = settings.ai_paid_max_tokens if is_paid else settings.ai_free_max_tokens
     endpoint = endpoint_base.rstrip("/") + "/chat/completions"
     body = {
         "model": model or settings.ai_model,
@@ -982,6 +992,7 @@ async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> 
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
         "temperature": temperature,
+        "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
     }
     # Penalise token repetition so the multiple reply options feel genuinely
@@ -993,17 +1004,30 @@ async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> 
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            response = await client.post(endpoint, headers=headers, json=body)
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-            return _parse_json_object(content)
-    except Exception as e:
-        print(f"AI API Error: {type(e).__name__} - {str(e)}")
-        if isinstance(e, httpx.HTTPStatusError):
-            print(f"HTTP Status Error: {e.response.status_code} - {e.response.text}")
-        return None
+    last_exc: Exception | None = None
+    for attempt, delay in enumerate((*_AI_RETRY_DELAYS, None)):
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                response = await client.post(endpoint, headers=headers, json=body)
+                response.raise_for_status()
+                content = response.json()["choices"][0]["message"]["content"]
+                return _parse_json_object(content)
+        except Exception as exc:
+            last_exc = exc
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            # Don't retry client errors (4xx) — they won't fix themselves.
+            if status is not None and 400 <= status < 500:
+                logger.error("AI API client error %s: %s", status, exc.response.text[:200])
+                return None
+            logger.warning(
+                "AI API error (attempt %d/%d): %s — %s",
+                attempt + 1, len(_AI_RETRY_DELAYS) + 1,
+                type(exc).__name__, str(exc)[:200],
+            )
+            if delay is not None:
+                await asyncio.sleep(delay)
+    logger.error("AI API failed after %d attempts: %s", len(_AI_RETRY_DELAYS) + 1, last_exc)
+    return None
 
 
 def _build_cache_key(user_prompt: dict[str, Any], model: str) -> str:
@@ -1047,25 +1071,6 @@ def _personalize_replies_for_focus(
     message_focus: str,
     professional: bool,
 ) -> list[ReplyOption]:
-    if "داروخانه" in message_focus:
-        if professional:
-            replacements = {
-                "حرفه‌ای": "پیام شما را درباره تصمیم داروخانه و نگرانی‌هایش گرفتم. حق دارید شفافیت بخواهید؛ تا امروز وضعیت هزینه‌ها، مجوزها و قدم بعدی را جمع‌بندی می‌کنم و بدون دفاع اضافه با شما چک می‌کنم.",
-                "کوتاه": "در مورد داروخانه حق دارید شفافیت بخواهید. امروز وضعیت دقیق و قدم بعدی را جمع‌بندی می‌کنم.",
-                "قاطع و آرام": "قبول دارم تصمیم داروخانه نیاز به بررسی دقیق‌تر دارد. بدون توجیه، عددها و ریسک‌ها را دوباره می‌چینم و بعد تصمیم بعدی را روشن می‌کنم.",
-            }
-        else:
-            replacements = {
-                "نرم": "می‌فهمم چرا تصمیم داروخانه ذهنت را درگیر کرده. من هم نمی‌خواهم از روی ترس یا غرور جلو بروم؛ بیا واقع‌بینانه هزینه‌ها، مجوزها و قدم بعدی را دوباره بررسی کنیم.",
-                "تعیین‌کننده مرز روابط": "نگرانی‌ات درباره داروخانه را می‌شنوم، ولی دوست ندارم این موضوع به سرزنش کلی من تبدیل شود. اگر درباره خود تصمیم حرف بزنیم، بهتر می‌توانم مسئولانه بررسی‌اش کنم.",
-                "کوتاه": "در مورد داروخانه نگرانی‌ات را فهمیدم. می‌خواهم با عدد و واقعیت دوباره بررسی‌اش کنم، نه با دفاع یا ترس.",
-                "قاطع و آرام": "ممکن است در تصمیم داروخانه اشتباه کرده باشم، اما می‌خواهم آرام و دقیق اصلاحش کنم. بیایید به جای مقصر پیدا کردن، قدم بعدی را روشن کنیم.",
-            }
-        return [
-            reply.model_copy(update={"text": replacements.get(reply.label, _append_focus(reply.text, message_focus))})
-            for reply in replies
-        ]
-
     return [
         reply.model_copy(update={"text": _append_focus(reply.text, message_focus)})
         for reply in replies

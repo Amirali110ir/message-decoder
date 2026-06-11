@@ -69,7 +69,7 @@ def classify(payload: FreeDecodeIn) -> Classification:
             safety_reasons=safety_reasons,
         )
 
-    manipulative = any(term.lower() in text for term in MANIPULATION_TERMS)
+    manipulative = any(_term_active_in_text(text, term) for term in MANIPULATION_TERMS)
     scores = _lens_scores(text)
     _apply_context_bias(scores, payload, tones)
     dominant = max(scores, key=scores.get)
@@ -236,8 +236,27 @@ def _weighted_score(text: str, strong_terms: list[str], weak_terms: list[str]) -
     return strong + (weak * 0.4)
 
 
+def _term_active_in_text(text: str, term: str) -> bool:
+    """Return True only if term appears in text without an immediate نمی negation prefix.
+
+    Persian verbs starting with می can be negated by prepending ن, forming نمی.
+    «میکشمت» is a substring of «نمیکشمت», so a raw `in` check produces a false
+    positive. We walk every occurrence and accept it only when the char immediately
+    before is not ن (or when the term doesn't start with می, where this isn't needed).
+    """
+    t = term.lower()
+    if not t.startswith("می"):
+        return t in text
+    idx = text.find(t)
+    while idx != -1:
+        if idx == 0 or text[idx - 1] != "ن":
+            return True
+        idx = text.find(t, idx + 1)
+    return False
+
+
 def _matched_categories(text: str, catalog: dict[str, list[str]]) -> list[str]:
-    return [label for label, terms in catalog.items() if any(term.lower() in text for term in terms)]
+    return [label for label, terms in catalog.items() if any(_term_active_in_text(text, term) for term in terms)]
 
 
 def _apply_context_bias(scores: dict[str, float], payload: FreeDecodeIn, tones: list[str]) -> None:

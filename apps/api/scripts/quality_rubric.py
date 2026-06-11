@@ -76,15 +76,26 @@ async def _post(body: dict, retries: int = 2) -> str | None:
     return None
 
 
-async def judge_scores(message: str, reply: str) -> dict[str, int]:
+LLM_DIMENSIONS = ["risk_reduction", "emotional_accuracy", "boundary_quality"]
+
+
+async def judge_scores(message: str, reply: str, goal: str, relationship_type: str) -> dict[str, int] | None:
+    """Return LLM-scored dimensions (1-5) or None if the judge call fails.
+
+    Returning None (instead of zeros) ensures failed calls are excluded from
+    averages rather than silently dragging scores down. The judge also receives
+    user_goal and relationship_type so boundary_quality and risk_reduction are
+    rated in context, not blindly.
+    """
     prompt = (
         "تو یک ارزیابِ سخت‌گیرِ کیفیتِ پاسخ‌های فارسی در روابط احساسی هستی.\n"
+        f"نوعِ رابطه: {relationship_type} | هدفِ کاربر: {goal}\n"
         f"پیامِ دریافتی: «{message}»\n"
         f"پاسخِ پیشنهادی به کاربر: «{reply}»\n\n"
         "این پاسخ را در سه بُعد از ۱ تا ۵ نمره بده:\n"
         "- risk_reduction: چقدر ریسکِ بدترشدنِ رابطه را کم می‌کند (دفاعی/تحریک‌کننده نبودن).\n"
         "- emotional_accuracy: چقدر احساسِ واقعیِ طرف را درست دیده و تأیید کرده (نه تأییدِ ادعا).\n"
-        "- boundary_quality: چقدر مرزِ سالم نگه داشته بدون تحقیر یا التماس.\n"
+        "- boundary_quality: چقدر مرزِ سالم نگه داشته بدون تحقیر یا التماس (با توجه به هدفِ کاربر).\n"
         'فقط JSON بده: {"risk_reduction":int,"emotional_accuracy":int,"boundary_quality":int}'
     )
     body = {
@@ -95,13 +106,16 @@ async def judge_scores(message: str, reply: str) -> dict[str, int]:
         "response_format": {"type": "json_object"},
     }
     content = await _post(body)
-    out = {"risk_reduction": 0, "emotional_accuracy": 0, "boundary_quality": 0}
     if not content:
-        return out
-    for k in out:
+        return None
+    out: dict[str, int] = {}
+    for k in LLM_DIMENSIONS:
         m = re.search(rf'"{k}"\s*:\s*([1-5])', content)
         if m:
             out[k] = int(m.group(1))
+    # If fewer than all 3 dimensions parsed, treat it as a failed judge call.
+    if len(out) < len(LLM_DIMENSIONS):
+        return None
     return out
 
 
@@ -129,16 +143,26 @@ async def main() -> None:
             print(f"  ! skipped case {i} (paid unavailable after retries)", flush=True)
             continue
         det = deterministic_scores(reply)
-        jud = await judge_scores(message, reply)
-        scores = {**det, **jud}
+        jud = await judge_scores(message, reply, goal=goal, relationship_type="romantic")
+        if jud is None:
+            print(f"  ! judge failed for case {i} — LLM dimensions excluded from averages", flush=True)
+        scores = {**det, **(jud or {}), "judge_ok": jud is not None}
         rows.append({"i": i, "goal": goal, "message": message, "reply": reply, "scores": scores})
 
     if not rows:
         print("No cases scored (all paid calls failed). Aborting report.")
         return
 
-    # aggregate
-    avg = {d: round(sum(r["scores"].get(d, 0) for r in rows) / len(rows), 2) for d in DIMENSIONS}
+    # Deterministic dimensions: average over all rows.
+    # LLM dimensions: average only over rows where the judge succeeded.
+    det_rows = rows
+    llm_rows = [r for r in rows if r["scores"].get("judge_ok")]
+    avg: dict[str, float] = {}
+    for d in DIMENSIONS:
+        if d in LLM_DIMENSIONS:
+            avg[d] = round(sum(r["scores"].get(d, 0) for r in llm_rows) / len(llm_rows), 2) if llm_rows else 0.0
+        else:
+            avg[d] = round(sum(r["scores"].get(d, 0) for r in det_rows) / len(det_rows), 2)
     overall = round(sum(avg.values()) / len(DIMENSIONS), 2)
 
     OUT.mkdir(parents=True, exist_ok=True)
