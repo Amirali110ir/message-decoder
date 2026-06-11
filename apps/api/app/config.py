@@ -32,12 +32,22 @@ class Settings:
     # penalty, not from a high temperature.
     ai_free_temperature: float = field(default_factory=lambda: float(os.getenv("AI_FREE_TEMPERATURE", "0.6")))
     ai_paid_temperature: float = field(default_factory=lambda: float(os.getenv("AI_PAID_TEMPERATURE", "0.4")))
-    # Penalises token repetition so replies feel varied (0 = off, 1 = maximum)
-    ai_frequency_penalty: float = field(default_factory=lambda: float(os.getenv("AI_FREQUENCY_PENALTY", "0.4")))
+    # Penalises token repetition. Default OFF: with response_format=json_object
+    # the penalty also applies to structural JSON tokens (braces, repeated keys),
+    # which on long paid outputs (5 reply options) risks malformed JSON or dropped
+    # required keys. Reply variety now comes from the prompt (distinct labels +
+    # explicit variety instruction), not from penalising the token stream.
+    ai_frequency_penalty: float = field(default_factory=lambda: float(os.getenv("AI_FREQUENCY_PENALTY", "0.0")))
     # Hard cap on output tokens to prevent runaway generation and control cost.
     # Free: analysis only (no replies). Paid: 5 reply options + supporting fields.
     ai_free_max_tokens: int = field(default_factory=lambda: int(os.getenv("AI_FREE_MAX_TOKENS", "1200")))
     ai_paid_max_tokens: int = field(default_factory=lambda: int(os.getenv("AI_PAID_MAX_TOKENS", "2500")))
+    # Inject golden examples as real few-shot conversation turns (user/assistant
+    # pairs) instead of a list buried in the task payload. Models imitate tone
+    # better from genuine turns. Reversible via env if a model regresses.
+    ai_paid_fewshot_turns_enabled: bool = field(
+        default_factory=lambda: os.getenv("AI_PAID_FEWSHOT_TURNS_ENABLED", "true").lower() not in ("false", "0", "no")
+    )
     # Paid self-critique pass (generate→critique→revise). Default on for quality.
     # When off, the always-on quality critique is skipped to halve paid latency,
     # but forbidden phrases are STILL scrubbed (the inspector runs regardless).

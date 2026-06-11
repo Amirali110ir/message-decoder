@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,19 +42,39 @@ from app.services.rule_engine import classify  # noqa: E402
 OUT = Path(__file__).resolve().parents[3] / "docs" / "quality"
 JUDGE_MODEL = "anthropic/claude-sonnet-4.5"
 
-# Fixed rubric cases for the wedge. Distinct from golden examples so few-shot
-# can't copy them. Keep this list STABLE so scores are comparable across runs.
+# Fixed rubric cases. Distinct from golden examples so few-shot can't copy them.
+# Each case is (relationship_type, user_goal, incoming_message, optional_context).
+# Keep existing cases STABLE (same position/text) so scores stay comparable across
+# runs; only APPEND new cases. The first 10 are the original romantic wedge.
 RUBRIC_CASES = [
-    ("calm_conflict", "هر وقت حرف می‌زنم سرت تو گوشیته، انگار اصلا برات مهم نیست چی میگم."),
-    ("calm_conflict", "دیشب جلوی دوستات اونجوری جوابمو دادی، خیلی بهم برخورد."),
-    ("calm_conflict", "بازم قرارمونو کنسل کردی. دیگه نمی‌دونم باید چه حسی داشته باشم."),
-    ("calm_conflict", "حس می‌کنم هرچی می‌کشم به خاطر این رابطه‌ست و تو اصلا نمی‌بینی."),
-    ("avoid_needy", "(دو روزه جوابمو نداده و نمی‌خوام آویزون به نظر بیام)"),
-    ("avoid_needy", "خب دیگه معلومه سرت شلوغه، مزاحمت نمیشم."),
-    ("calm_conflict", "انگار من همیشه آخرین اولویتتم، کار و رفیقات همیشه جلوترن."),
-    ("set_boundary", "چرا بدون اینکه به من بگی تصمیم گرفتی؟ من اصلا به حساب نمیام؟"),
-    ("calm_conflict", "گفتی عوض میشی ولی هیچی فرق نکرده، دیگه امیدی ندارم."),
-    ("avoid_needy", "استوری گذاشتی ولی جواب منو ندادی. باشه، فهمیدم."),
+    # --- romantic wedge (original 10, kept stable) ---
+    ("romantic", "calm_conflict", "هر وقت حرف می‌زنم سرت تو گوشیته، انگار اصلا برات مهم نیست چی میگم.", None),
+    ("romantic", "calm_conflict", "دیشب جلوی دوستات اونجوری جوابمو دادی، خیلی بهم برخورد.", None),
+    ("romantic", "calm_conflict", "بازم قرارمونو کنسل کردی. دیگه نمی‌دونم باید چه حسی داشته باشم.", None),
+    ("romantic", "calm_conflict", "حس می‌کنم هرچی می‌کشم به خاطر این رابطه‌ست و تو اصلا نمی‌بینی.", None),
+    ("romantic", "avoid_needy", "(دو روزه جوابمو نداده و نمی‌خوام آویزون به نظر بیام)", None),
+    ("romantic", "avoid_needy", "خب دیگه معلومه سرت شلوغه، مزاحمت نمیشم.", None),
+    ("romantic", "calm_conflict", "انگار من همیشه آخرین اولویتتم، کار و رفیقات همیشه جلوترن.", None),
+    ("romantic", "set_boundary", "چرا بدون اینکه به من بگی تصمیم گرفتی؟ من اصلا به حساب نمیام؟", None),
+    ("romantic", "calm_conflict", "گفتی عوض میشی ولی هیچی فرق نکرده، دیگه امیدی ندارم.", None),
+    ("romantic", "avoid_needy", "استوری گذاشتی ولی جواب منو ندادی. باشه، فهمیدم.", None),
+    # --- ex (highest-risk gap) ---
+    ("ex", "set_boundary", "میشه یه بار دیگه ببینمت؟ فقط یه قهوه، دلم برات تنگ شده.", None),
+    ("ex", "end_conversation", "اصلا انگار نه انگار چند سال با هم بودیم. خیلی بی‌رحمی.", None),
+    ("ex", "set_boundary", "بیداری؟ امشب خیلی حالم بده، فقط تو رو می‌خوام.", None),
+    # --- manager / colleague (professional register) ---
+    ("manager_colleague", "set_boundary", "این گزارشو باید همین امشب تا ساعت ۲ تمومش کنی و بفرستی.", None),
+    ("manager_colleague", "calm_conflict", "تو جلسه گفتی کارو انجام دادی ولی من هیچ خروجی‌ای نمی‌بینم.", None),
+    ("manager_colleague", "professional_reply", "این اصلا اون چیزی نبود که ازت خواسته بودم، دوباره انجامش بده.", None),
+    # --- customer (brand voice) ---
+    ("customer", "calm_conflict", "سفارشم یه هفته دیر شده، دیگه از خرید از شما پشیمونم.", None),
+    ("customer", "set_boundary", "اگه همین الان پولمو برنگردونید، همه جا ازتون شکایت می‌کنم.", None),
+    # --- family (soft but firm boundaries) ---
+    ("family", "set_boundary", "کی می‌خوای ازدواج کنی؟ دیگه جلوی فامیل سرافکنده شدیم.", None),
+    ("family", "calm_conflict", "دیگه اصلا بهمون سر نمی‌زنی، انگار واقعا برات غریبه شدیم.", None),
+    # --- episode context (situation arc, not just last line) ---
+    ("romantic", "calm_conflict", "هرچی می‌خوای فکر کن. من دیگه حرفی ندارم.",
+     "دو هفته پیش سر مهمونی دعوامون شد و گفت دیگه بهم اعتماد نداره. از اون موقع سرد شده و کوتاه جواب می‌ده. دیروز گفتم بیا حرف بزنیم، اینو جواب داد."),
 ]
 
 DIMENSIONS = ["natural_persian", "risk_reduction", "copy_readiness", "emotional_accuracy", "boundary_quality"]
@@ -88,7 +109,7 @@ async def judge_scores(message: str, reply: str, goal: str, relationship_type: s
     rated in context, not blindly.
     """
     prompt = (
-        "تو یک ارزیابِ سخت‌گیرِ کیفیتِ پاسخ‌های فارسی در روابط احساسی هستی.\n"
+        "تو یک ارزیابِ سخت‌گیرِ کیفیتِ پاسخ‌های فارسی در ارتباطاتِ بین‌فردی (عاطفی، کاری، خانوادگی، مشتری) هستی.\n"
         f"نوعِ رابطه: {relationship_type} | هدفِ کاربر: {goal}\n"
         f"پیامِ دریافتی: «{message}»\n"
         f"پاسخِ پیشنهادی به کاربر: «{reply}»\n\n"
@@ -119,13 +140,24 @@ async def judge_scores(message: str, reply: str, goal: str, relationship_type: s
     return out
 
 
-async def product_reply(goal: str, message: str, attempts: int = 3) -> str | None:
+async def product_reply(
+    relationship_type: str,
+    goal: str,
+    message: str,
+    context: str | None = None,
+    attempts: int = 3,
+) -> str | None:
     """Generate the paid reply, retrying transient API timeouts."""
-    payload = FreeDecodeIn(message_text=message, relationship_type="romantic", user_goal=goal)
+    payload = FreeDecodeIn(
+        message_text=message,
+        relationship_type=relationship_type,
+        user_goal=goal,
+        optional_context=context,
+    )
     for attempt in range(attempts):
         try:
             fo = await free_decode(payload, classify(payload))
-            po = await paid_decode(fo, "romantic", goal, message_text=message)
+            po = await paid_decode(fo, relationship_type, goal, message_text=message, optional_context=context)
             return po.copy_ready_reply.strip()
         except PaidDecodeUnavailable:
             if attempt == attempts - 1:
@@ -136,18 +168,21 @@ async def product_reply(goal: str, message: str, attempts: int = 3) -> str | Non
 
 async def main() -> None:
     rows = []
-    for i, (goal, message) in enumerate(RUBRIC_CASES, 1):
-        print(f"[{i}/{len(RUBRIC_CASES)}] scoring...", flush=True)
-        reply = await product_reply(goal, message)
+    for i, (relationship_type, goal, message, context) in enumerate(RUBRIC_CASES, 1):
+        print(f"[{i}/{len(RUBRIC_CASES)}] scoring ({relationship_type}/{goal})...", flush=True)
+        reply = await product_reply(relationship_type, goal, message, context)
         if reply is None:
             print(f"  ! skipped case {i} (paid unavailable after retries)", flush=True)
             continue
         det = deterministic_scores(reply)
-        jud = await judge_scores(message, reply, goal=goal, relationship_type="romantic")
+        jud = await judge_scores(message, reply, goal=goal, relationship_type=relationship_type)
         if jud is None:
             print(f"  ! judge failed for case {i} — LLM dimensions excluded from averages", flush=True)
         scores = {**det, **(jud or {}), "judge_ok": jud is not None}
-        rows.append({"i": i, "goal": goal, "message": message, "reply": reply, "scores": scores})
+        rows.append({
+            "i": i, "relationship_type": relationship_type, "goal": goal,
+            "message": message, "reply": reply, "scores": scores,
+        })
 
     if not rows:
         print("No cases scored (all paid calls failed). Aborting report.")
@@ -180,12 +215,12 @@ async def main() -> None:
     md += [f"| **overall** | **{overall}** |", "",
            "> copy_readiness و natural_persian قطعی‌اند؛ بقیه با قاضیِ LLM.", "",
            "## جزئیاتِ هر case", "",
-           "| # | هدف | " + " | ".join(DIMENSIONS) + " | پاسخ |",
-           "| :- | :- |" + " :-: |" * len(DIMENSIONS) + " :-- |"]
+           "| # | رابطه | هدف | " + " | ".join(DIMENSIONS) + " | پاسخ |",
+           "| :- | :- | :- |" + " :-: |" * len(DIMENSIONS) + " :-- |"]
     for r in rows:
         cells = " | ".join(str(r["scores"].get(d, 0)) for d in DIMENSIONS)
         reply_short = r["reply"].replace("\n", " ")
-        md.append(f"| {r['i']} | {r['goal']} | {cells} | {reply_short} |")
+        md.append(f"| {r['i']} | {r.get('relationship_type', '')} | {r['goal']} | {cells} | {reply_short} |")
     (OUT / "rubric_report.md").write_text("\n".join(md), encoding="utf-8")
     (OUT / "rubric_latest.json").write_text(
         json.dumps({"ts": ts, "prompt_version": PROMPT_VERSION, "paid_model": current_model_version("paid"),
@@ -194,6 +229,15 @@ async def main() -> None:
     )
     print(f"\nOVERALL {overall}/5 | " + " ".join(f"{d}={avg[d]}" for d in DIMENSIONS))
     print(f"Report: {OUT / 'rubric_report.md'}")
+
+    # Threshold gate (P1 T13): when run in CI, fail the job if quality regresses
+    # below RUBRIC_MIN_OVERALL so a prompt/model change can't silently degrade
+    # the paid reply. Defaults to 3.8/5; set to 0 to disable the gate.
+    min_overall = float(os.getenv("RUBRIC_MIN_OVERALL", "3.8"))
+    if min_overall > 0 and overall < min_overall:
+        print(f"\n❌ QUALITY GATE FAILED: overall {overall} < threshold {min_overall}")
+        sys.exit(1)
+    print(f"\n✅ quality gate passed (overall {overall} ≥ {min_overall})")
 
 
 if __name__ == "__main__":

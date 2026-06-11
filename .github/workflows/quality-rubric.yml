@@ -1,0 +1,62 @@
+name: Quality rubric (LLM judge)
+
+# The full quality rubric calls the real paid model + an LLM judge, so it needs
+# API secrets and costs money. It runs on demand and on a weekly schedule rather
+# than on every PR. The job FAILS if the overall score drops below
+# RUBRIC_MIN_OVERALL, so a prompt/model regression is caught before it ships.
+on:
+  workflow_dispatch:
+    inputs:
+      min_overall:
+        description: "Minimum overall score (1-5) to pass"
+        required: false
+        default: "3.8"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+jobs:
+  rubric:
+    name: Run paid-reply rubric with quality gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    env:
+      AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
+      AI_API_KEY: ${{ secrets.AI_API_KEY }}
+      AI_API_BASE_URL: ${{ secrets.AI_API_BASE_URL }}
+      AI_PAID_API_KEY: ${{ secrets.AI_PAID_API_KEY }}
+      AI_PAID_API_BASE_URL: ${{ secrets.AI_PAID_API_BASE_URL }}
+      AI_FREE_MODEL: ${{ secrets.AI_FREE_MODEL }}
+      AI_PAID_MODEL: ${{ secrets.AI_PAID_MODEL }}
+      RUBRIC_MIN_OVERALL: ${{ github.event.inputs.min_overall || '3.8' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Guard — require AI credentials
+        run: |
+          if [ -z "${AI_API_KEY}" ] || [ -z "${AI_PAID_API_KEY}" ]; then
+            echo "::error::AI_API_KEY / AI_PAID_API_KEY secrets are not set; cannot run the LLM rubric."
+            exit 1
+          fi
+
+      - name: Run quality rubric (fails if overall < RUBRIC_MIN_OVERALL)
+        run: python scripts/quality_rubric.py
+
+      - name: Upload rubric report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rubric-report
+          path: docs/quality/
+          if-no-files-found: ignore

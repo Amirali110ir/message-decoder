@@ -12,7 +12,7 @@ import httpx
 from app.config import get_settings
 from app.schemas import FreeDecodeIn, FreeDecodeOutput, LensLabel, LensMix, PaidDecodeOutput, ReactionForecast, ReplyOption, SafetyOutput, ToneStress
 from app.services.cache import get_cached_response, set_cached_response
-from app.services.golden_examples import golden_examples_for_prompt
+from app.services.golden_examples import golden_examples_as_messages, golden_examples_for_prompt
 from app.services.rule_engine import (
     RULE_ENGINE_VERSION,
     Classification,
@@ -95,6 +95,42 @@ SYSTEM_PROMPT = """
 پاسخ باید به کاربر کمک کند صادقانه‌تر و واضح‌تر حرف بزند، نه اینکه طرف مقابل را فریب دهد، گناه‌اندازی کند یا به کاری وادارد که با آگاهیِ کامل انتخاب نمی‌کرد. هیچ پاسخ manipulative، تحقیرآمیز، تهدیدآمیز یا التماس‌گونه نساز.
 
 خروجی باید فارسیِ طبیعی و غیررباتی، و یک JSON معتبر مطابق schema خواسته‌شده باشد.
+""".strip()
+
+
+# Focused, lightweight system prompts for the auxiliary tasks. The full
+# SYSTEM_PROMPT (lens framework, decode process, reply structure) is noise for
+# these single-purpose calls — it wastes tokens and dilutes the model's
+# attention. Each of these keeps only the rules that matter for its task.
+TONE_EDIT_SYSTEM_PROMPT = """
+تو ویرایشگرِ لحنِ پیام‌های فارسی هستی. یک پیامِ آماده می‌گیری و فقط لحنش را طبقِ خواسته تغییر می‌دهی.
+
+قواعد:
+- معنا و موضعِ اصلیِ پیام را عوض نکن؛ فقط لحن و سبک را تغییر بده.
+- شکسته و طبیعی بنویس («می‌خوام» نه «می‌خواهم»)، کوتاه و قابلِ ارسال مثلِ پیامِ چت.
+- هیچ واژه‌ی روان‌شناسی یا کلیشه‌ی درمانی نیار.
+- هیچ پاسخ manipulative، تحقیرآمیز، تهدیدآمیز یا التماس‌گونه نساز.
+- خروجی فقط یک JSON معتبر مطابقِ schema خواسته‌شده باشد.
+""".strip()
+
+BEFORE_SEND_SYSTEM_PROMPT = """
+تو ارزیابِ ریسکِ پیام‌های فارسی هستی. متنی که خودِ کاربر می‌خواهد بفرستد را می‌گیری و ریسکِ واکنشِ منفیِ طرفِ مقابل را می‌سنجی.
+
+قواعد:
+- درباره‌ی نیتِ طرفِ مقابل قطعی حرف نزن.
+- نقاطِ پرخطر را مشخص نام ببر (لحنِ تند، سرزنشِ مطلق، گناه‌اندازی، ابهام، طولِ زیاد).
+- پیشنهادهای کوتاه و عملی برای کم‌ریسک‌تر شدن بده.
+- اگر بازنویسی می‌دهی، شکسته، کوتاه و قابلِ ارسال باشد، بدونِ واژه‌ی روان‌شناسی.
+- خروجی فقط یک JSON معتبر مطابقِ schema خواسته‌شده باشد.
+""".strip()
+
+COMPRESS_SYSTEM_PROMPT = """
+تو خلاصه‌سازِ زمینه‌ی گفتگوهای فارسی هستی. یک زمینه‌ی طولانی می‌گیری و آن را به یک خلاصه‌ی کوتاهِ ساختاریافته تبدیل می‌کنی.
+
+قواعد:
+- فقط حقایقِ مهم برای فهمِ موقعیت را نگه دار؛ حاشیه و تکرار را دور بریز.
+- هیچ تفسیر، قضاوت یا تحلیلی اضافه نکن؛ فقط فشرده کن.
+- خروجی فقط یک JSON معتبر مطابقِ schema خواسته‌شده باشد.
 """.strip()
 
 
@@ -403,7 +439,7 @@ async def _tone_edit_with_ai(
         ],
         "json_schema_shape": {"text": "string"},
     }
-    data = await _chat_json(user_prompt, model=_model_for_task("free"))
+    data = await _chat_json(user_prompt, model=_model_for_task("free"), system_prompt=TONE_EDIT_SYSTEM_PROMPT)
     if not data:
         return None
     text = data.get("text")
@@ -526,7 +562,7 @@ async def _before_send_with_ai(
         ],
         "json_schema_shape": schema_hint,
     }
-    data = await _chat_json(user_prompt, model=_model_for_task("free"))
+    data = await _chat_json(user_prompt, model=_model_for_task("free"), system_prompt=BEFORE_SEND_SYSTEM_PROMPT)
     if data is None:
         return None
     try:
@@ -800,7 +836,7 @@ async def _compress_context(text: str, message_text: str | None) -> str | None:
             "recent_points": ["نکته‌های مهمِ پیام‌های اخیر"],
         },
     }
-    data = await _chat_json(payload, model=_model_for_task("free"))
+    data = await _chat_json(payload, model=_model_for_task("free"), system_prompt=COMPRESS_SYSTEM_PROMPT)
     if not isinstance(data, dict):
         return None
     parts: list[str] = []
@@ -858,6 +894,15 @@ async def _paid_decode_with_ai(
         "attribution_reply": "string",
         "follow_up_question": "string",
     }
+    # Golden examples can be delivered either as real few-shot conversation
+    # turns (preferred — models imitate tone better from genuine turns) or as a
+    # list inside the payload (fallback). The turns are NOT part of user_prompt,
+    # so the cache key stays stable (the same relationship/goal yields the same
+    # turns deterministically).
+    use_fewshot_turns = settings.ai_paid_fewshot_turns_enabled
+    few_shot_messages = (
+        golden_examples_as_messages(relationship_type, user_goal, limit=4) if use_fewshot_turns else None
+    )
     user_prompt = {
         "task": "paid_decode",
         "message_text": message_text,
@@ -868,10 +913,9 @@ async def _paid_decode_with_ai(
         "user_goal": user_goal,
         "contact_profile_summary": contact_profile_summary,
         "reply_playbook": paid_reply_playbook(relationship_type, user_goal, free_output.dominant_lens.key),
-        "نمونه‌های_طلایی": golden_examples_for_prompt(relationship_type, user_goal, limit=4),
         "requirements": [
-            "اگر «نمونه‌های_طلایی» داده شده، لحن و سبکِ همان‌ها را تقلید کن: شکسته، کوتاه، سه‌جمله‌ای، بدونِ بهانه و دفاع (مثلِ «سرم شلوغ بود» ننویس). نمونه‌ها را عیناً کپی نکن؛ فقط جنسِ لحن و ساختارشان را بگیر و برای همین پیام بساز.",
-            "۴ تا ۵ پاسخ آماده و قابل کپی بده؛ پاسخ‌ها واقعاً از نظر زاویه و کاربرد متفاوت باشند.",
+            "از نمونه‌هایِ سبکِ تأییدشده (چه گفتگوهای نمونه‌ی قبلی، چه «نمونه‌های_طلایی» اگر داده شده) لحن و ساختار را تقلید کن: شکسته، کوتاه، سه‌جمله‌ای، بدونِ بهانه و دفاع (مثلِ «سرم شلوغ بود» ننویس). نمونه‌ها را عیناً کپی نکن؛ فقط جنسِ لحن و ساختارشان را بگیر و برای همین پیام بساز.",
+            "۴ تا ۵ پاسخ آماده و قابل کپی بده؛ پاسخ‌ها واقعاً از نظر زاویه و کاربرد متفاوت باشند — هرکدام یک موضع/لحنِ متمایز، نه بازنویسیِ یک جمله.",
             "هر پاسخ باید به message_focus یا جزئیات message_text مربوط باشد. جواب‌هایی مثل «می‌فهمم چرا اینطوری برداشت کردی» بدون اشاره به موضوع مشخص پیام کافی نیست.",
             "اگر contact_profile_summary وجود دارد، پاسخ را با حافظه همین مخاطب شخصی‌سازی کن اما از برچسب قطعی شخصیتی پرهیز کن.",
             "حتماً این labelها را پوشش بده مگر اینکه context خلافش باشد: نرم، تعیین‌کننده مرز روابط، کوتاه، قاطع و آرام، هدف‌محور.",
@@ -887,12 +931,14 @@ async def _paid_decode_with_ai(
         ],
         "json_schema_shape": schema_hint,
     }
+    if not use_fewshot_turns:
+        user_prompt["نمونه‌های_طلایی"] = golden_examples_for_prompt(relationship_type, user_goal, limit=4)
     cache_key = _build_cache_key(user_prompt, _model_for_task("paid"))
     if settings.ai_semantic_cache_enabled:
         cached = get_cached_response(task="paid_decode", cache_key=cache_key)
         if cached:
             return PaidDecodeOutput.model_validate(cached)
-    data = await _chat_json(user_prompt, model=_model_for_task("paid"))
+    data = await _chat_json(user_prompt, model=_model_for_task("paid"), few_shot_messages=few_shot_messages)
     if data is None:
         return None
     if free_output.message_focus and not data.get("personalization_note"):
@@ -976,7 +1022,12 @@ async def _self_critique_paid(
     return revised
 
 
-async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> dict[str, Any] | None:
+async def _chat_json(
+    user_payload: dict[str, Any],
+    model: str | None = None,
+    system_prompt: str | None = None,
+    few_shot_messages: list[dict[str, str]] | None = None,
+) -> dict[str, Any] | None:
     settings = get_settings()
     task = str(user_payload.get("task") or "free_decode")
     is_paid = task == "paid_decode"
@@ -985,19 +1036,19 @@ async def _chat_json(user_payload: dict[str, Any], model: str | None = None) -> 
     temperature = settings.ai_paid_temperature if is_paid else settings.ai_free_temperature
     max_tokens = settings.ai_paid_max_tokens if is_paid else settings.ai_free_max_tokens
     endpoint = endpoint_base.rstrip("/") + "/chat/completions"
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
+    if few_shot_messages:
+        messages.extend(few_shot_messages)
+    messages.append({"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)})
     body = {
         "model": model or settings.ai_model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-        ],
+        "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
     }
-    # Penalise token repetition so the multiple reply options feel genuinely
-    # varied even at a low temperature. Skip when disabled (0) to avoid sending
-    # an unnecessary param to models that may not support it.
+    # Token-repetition penalty is off by default (see config) because it also
+    # penalises structural JSON tokens. Only sent when explicitly enabled.
     if settings.ai_frequency_penalty:
         body["frequency_penalty"] = settings.ai_frequency_penalty
     headers = {
