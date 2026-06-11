@@ -83,6 +83,51 @@ def test_golden_examples_pass_deterministic_quality_bar():
             assert natural_persian(ex.reply) >= 3, f"{ex.id} reply reads unnatural"
 
 
+def test_professional_golden_examples_have_varied_openers():
+    """No formulaic opener phrase should appear more than once per professional pool.
+
+    Repeated openers teach the model a mechanical voice and produce easy-to-spot
+    AI text (e.g. every customer reply starting with «کاملاً حق دارید»).
+    Personal relationship pools are exempt because mirroring patterns (e.g.
+    «می‌فهمم که») can be intentionally varied in follow-on sentences.
+    """
+    FORMULAIC = [
+        "کاملاً حق دارید",
+        "حق دارید ناراحت",
+        "کاملاً قابل درک است",
+        "ممنون که گفتید؛ قصد",
+        "ممنون که مطرح کردید",
+    ]
+    for rel in ("manager_colleague", "customer"):
+        pool = [ex for ex in GOLDEN_EXAMPLES if ex.relationship_type == rel]
+        for phrase in FORMULAIC:
+            hits = [ex.id for ex in pool if ex.reply.startswith(phrase)]
+            assert len(hits) <= 1, (
+                f"{rel}: opener '{phrase}' appears in {len(hits)} examples "
+                f"(max 1 per pool): {hits}"
+            )
+
+
+def test_understand_only_replies_are_short():
+    """understand_only replies are minimal safe fallbacks — not full replies.
+
+    They must stay ≤ 2 sentences (i.e. at most one internal sentence break),
+    contain no door-opening phrase, and contain no volunteered information.
+    """
+    DOOR_OPENERS = ["دلم برات", "بیا ببینیم", "بیا حرف بزنیم", "بیا دوباره"]
+    for ex in GOLDEN_EXAMPLES:
+        if ex.user_goal != "understand_only":
+            continue
+        sentences = [s.strip() for s in ex.reply.replace("؛", ".").split(".") if s.strip()]
+        assert len(sentences) <= 3, (
+            f"{ex.id} (understand_only) reply has {len(sentences)} sentences — keep it ≤ 2"
+        )
+        for phrase in DOOR_OPENERS:
+            assert phrase not in ex.reply, (
+                f"{ex.id} (understand_only) contains door-opening phrase '{phrase}'"
+            )
+
+
 def test_golden_selection_scopes_to_relationship_and_prefers_goal():
     sel = select_golden_examples("romantic", "avoid_needy", limit=4)
     assert sel and sel[0].user_goal == "avoid_needy"

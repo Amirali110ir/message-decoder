@@ -20,6 +20,27 @@ to the message's ``relationship_type`` first, then prefers the matching
 
 Golden rule honoured by every reply here: help the user be more honest and
 clear, never to manipulate or guilt-trip the other person.
+
+--- Goal semantics for the ``reply`` field ---
+
+  calm_conflict       : de-escalate; 1-3 sentences; acknowledge feeling then state
+                        position without defending; leave a door open.
+  avoid_needy         : brief, warm, zero pressure; hand the next move to the other
+                        person; do NOT chase or apologise.
+  set_boundary        : name the limit clearly but without attack; keep the door open
+                        for a healthier version of the interaction.
+  end_conversation    : close the loop without cruelty; name the reason (exhaustion /
+                        circularity) and offer a future re-open if genuine.
+  make_them_accountable: no accusation of character; name the specific broken agreement;
+                        ask for a concrete date/action, not an apology.
+  improve_relationship: catch the soft step; reciprocate warmth; convert the moment into
+                        a small, sustainable forward action.
+  professional_reply  : direct, time-bound, accountable; no emotional over-explaining.
+  understand_only     : the user primarily wants to decode the message, not necessarily
+                        reply. ``reply`` holds the *minimal safe fallback* — the one
+                        sentence that is honest, non-escalating, and neither opens nor
+                        slams a door. Keep it to ≤ 2 sentences; do NOT volunteer
+                        information the user did not ask about.
 """
 
 from __future__ import annotations
@@ -288,6 +309,34 @@ _ROMANTIC: list[GoldenExample] = [
         reply="می‌بینم که چقدر کلافه‌ای و نمی‌خوام بیشتر بشه. بیا فعلاً یه مکث کنیم، بعداً سرحال‌تر برمی‌گردیم سرش.",
         why="کلافگی را می‌بیند بدون جبهه‌گیری؛ مکث را به‌جای تسلیم یا جنگ پیشنهاد می‌کند؛ ادامه را به جلو موکول می‌کند.",
     ),
+    # --- improve_relationship ---
+    GoldenExample(
+        id="romantic_improve_emotional_distance",
+        relationship_type="romantic",
+        situation="ابراز فاصله‌ی عاطفی توسط پارتنر",
+        user_goal="improve_relationship",
+        incoming="حس می‌کنم این روزا فقط کنار همیم، ولی با هم نیستیم.",
+        reply="خوشحالم که گفتیش، چون خودمم یه همچین حسی داشتم. امشب بیا گوشیا رو بذاریم کنار و فقط با هم حرف بزنیم.",
+        why="Mirrors the vulnerable move warmly (rule 4), admits shared feeling without defensiveness, ends with a concrete invitation not a vague promise.",
+    ),
+    GoldenExample(
+        id="romantic_improve_gratitude_mirror",
+        relationship_type="romantic",
+        situation="قدردانی احساسی پارتنر",
+        user_goal="improve_relationship",
+        incoming="ممنون که دیروز کنارم بودی. خیلی وقت بود کسی اینجوری حواسش بهم نبود.",
+        reply="این حرفت خیلی به دلم نشست. دوست دارم از این لحظه‌ها بیشتر داشته باشیم؛ تو هم بگو چیا حالتو خوب می‌کنه.",
+        why="Catches the soft step and reciprocates instead of deflecting; turns a one-off moment into a pattern by inviting specificity.",
+    ),
+    GoldenExample(
+        id="romantic_improve_decision_complaint",
+        relationship_type="romantic",
+        situation="گلایه از تصمیم‌گیری یک‌طرفه",
+        user_goal="improve_relationship",
+        incoming="تو هیچ‌وقت نظر منو نمی‌پرسی، خودت تصمیم می‌گیری.",
+        reply="راست میگی، چند بار همین‌جوری شده. از این به بعد قبلش باهات چک می‌کنم؛ الانم بگو کجاها بیشتر اذیتت کرد.",
+        why="Validates the claim where it's actually true (no fake validation), commits to a specific behavioral change, asks for specifics instead of a general 'let's talk'.",
+    ),
 ]
 
 
@@ -404,6 +453,44 @@ _EX: list[GoldenExample] = [
         reply="ممنون که به فکرش بودی. آره اگه زحمتت نیست با پست بفرست، آدرسو می‌فرستم.",
         why="تشکرِ ساده بدون باز کردنِ گفتگوی عاطفی؛ راه‌حلِ غیرحضوری؛ خشک نیست ولی صمیمیِ گذشته هم نیست.",
     ),
+    # --- calm_conflict ---
+    GoldenExample(
+        id="ex_calm_blame_message",
+        relationship_type="ex",
+        situation="پیام سرزنش‌آمیز اکس بعد از جدایی",
+        user_goal="calm_conflict",
+        incoming="تو زندگیمو نابود کردی و الان راحت داری زندگیتو می‌کنی.",
+        reply="می‌بینم چقدر ازم دلخوری و نمی‌خوام این بحث داغ‌تر شه. برداشت من از اون رابطه فرق داره، ولی دعوا چیزی رو عوض نمی‌کنه.",
+        why="Acknowledges the feeling without accepting the claim (rule 2), refuses the fight without coldness, and sends zero reopening signal.",
+    ),
+    GoldenExample(
+        id="ex_calm_blocked_accusation",
+        relationship_type="ex",
+        situation="اتهام بی‌تفاوتی از طرف اکس",
+        user_goal="calm_conflict",
+        incoming="معلومه برات هیچ ارزشی نداشتم که انقدر راحت رد شدی.",
+        reply="اینکه الان جوابم کوتاهه به معنی بی‌ارزش بودن اون دوران نیست. فقط فکر می‌کنم ادامه‌ی این بحث به هیچ‌کدوممون کمک نمی‌کنه.",
+        why="Defuses the worth-attack without flattery or nostalgia; closes the argument loop while staying respectful — no ambiguity, no door to reopening.",
+    ),
+    # --- understand_only (minimal safe fallback) ---
+    GoldenExample(
+        id="ex_understand_dream_message",
+        relationship_type="ex",
+        situation="پیام نوستالژیک بی‌مقدمه از اکس",
+        user_goal="understand_only",
+        incoming="دیشب خوابتو دیدم. نمی‌دونم چرا، ولی گفتم بهت بگم.",
+        reply="ممنون که گفتی. امیدوارم حالت خوب باشه.",
+        why="Minimal, kind, and completely free of reopening signal — neither cold nor inviting; the decode matters more than the reply here.",
+    ),
+    GoldenExample(
+        id="ex_understand_vague_closure_seek",
+        relationship_type="ex",
+        situation="سؤال مبهم اکس درباره‌ی دلیل جدایی",
+        user_goal="understand_only",
+        incoming="فقط می‌خوام بدونم واقعاً چی شد که اینجوری تموم شد.",
+        reply="حرفت رو می‌فهمم و حق داری بخوای بدونی. دلیلش همونیه که موقع جدایی گفتم؛ چیز پنهونی وجود نداره.",
+        why="Grants legitimate closure-seeking without re-litigating the relationship; refers back to the original conversation instead of opening a new one.",
+    ),
 ]
 
 
@@ -501,6 +588,44 @@ _MANAGER: list[GoldenExample] = [
         reply="اولویتش رو می‌فهمم و شروع می‌کنم. بخشِ اصلی تا آخرِ امروز آماده می‌شه؛ بخشِ [فلان] برای کیفیت به صبحِ فردا نیاز داره. اگر بخوای می‌تونم نسخه‌ی اولیه رو امروز بدم.",
         why="تعهد را نشان می‌دهد بدونِ قولِ توخالی؛ واقعیتِ زمان را شفاف می‌گوید؛ گزینه‌ی عملی روی میز می‌گذارد.",
     ),
+    # --- calm_conflict ---
+    GoldenExample(
+        id="manager_calm_public_blame",
+        relationship_type="manager_colleague",
+        situation="سرزنش مدیر بابت اشتباه در جلسه",
+        user_goal="calm_conflict",
+        incoming="این اشتباه توی جلسه اعتبار تیم رو زیر سؤال برد.",
+        reply="حق دارید ناراحت باشید؛ مسئولیت اون بخش با من بود. تا پایان امروز نسخه‌ی اصلاح‌شده را می‌فرستم و یک چک‌لیست بازبینی می‌گذارم که تکرار نشود.",
+        why="Owns the mistake without self-flagellation; pivots immediately to a time-bound fix plus a systemic prevention step.",
+    ),
+    GoldenExample(
+        id="colleague_calm_credit_dispute",
+        relationship_type="manager_colleague",
+        situation="عصبانیت همکار بابت برداشت از سهم کاری",
+        user_goal="calm_conflict",
+        incoming="شما کار من رو به اسم خودتون ارائه کردید و این اصلاً حرفه‌ای نیست.",
+        reply="ممنون که مستقیم گفتید؛ قصد من این نبود ولی برداشت شما را می‌فهمم. در جلسه‌ی فردا سهم شما را شفاف اعلام می‌کنم و از این به بعد اسامی را قبل از ارائه هماهنگ می‌کنیم.",
+        why="Validates the perception without confessing intent it didn't have; offers a public, verifiable correction plus a process fix.",
+    ),
+    # --- understand_only (minimal safe fallback) ---
+    GoldenExample(
+        id="manager_understand_vague_pause",
+        relationship_type="manager_colleague",
+        situation="دستور مبهم مدیر برای متوقف کردن پروژه",
+        user_goal="understand_only",
+        incoming="فعلاً این پروژه را نگه دارید، بعداً صحبت می‌کنیم.",
+        reply="حتماً، متوقفش می‌کنم. فقط برای برنامه‌ریزی تیم، حدوداً چه زمانی فرصت گفت‌وگو دارید؟",
+        why="Complies cleanly, then extracts the missing information (timeline) with a legitimate operational reason — no anxiety or pushback.",
+    ),
+    GoldenExample(
+        id="manager_understand_cold_feedback",
+        relationship_type="manager_colleague",
+        situation="بازخورد سرد و کلی مدیر",
+        user_goal="understand_only",
+        incoming="خروجی این ماه اون چیزی نبود که انتظار داشتم.",
+        reply="ممنون که گفتید. برای اینکه دقیق اصلاح کنم، ممکن است بفرمایید کدام بخش بیشترین فاصله را با انتظار شما داشت؟",
+        why="Converts a vague criticism into specific, actionable data without defensiveness or emotional over-explaining.",
+    ),
 ]
 
 
@@ -560,6 +685,25 @@ _CUSTOMER: list[GoldenExample] = [
         incoming="باید همین الان رایگان برام بفرستید وگرنه شکایت می‌کنم.",
         reply="دوست دارم تا جای ممکن کمکتون کنم. ارسالِ رایگان خارج از سیاستِ ماست، اما می‌تونم در سریع‌ترین زمان با تخفیفِ ارسال موضوع رو براتون حل کنم.",
         why="تمایل به کمک را نشان می‌دهد؛ مرزِ سیاست را محترمانه اما قاطع می‌گذارد؛ جایگزینِ واقعی پیشنهاد می‌کند.",
+    ),
+    # --- calm_conflict ---
+    GoldenExample(
+        id="customer_calm_delayed_order",
+        relationship_type="customer",
+        situation="عصبانیت مشتری از تأخیر و بی‌پاسخی",
+        user_goal="calm_conflict",
+        incoming="این چه وضعشه؟ دو هفته‌ست پیگیرم و هیچ جوابی نمی‌گیرم!",
+        reply="بابتِ این تأخیر و بی‌پاسخی عذرخواهی می‌کنم؛ این قابل قبول نیست. همین الان سفارشتون رو شخصاً پیگیری می‌کنم و تا ساعت ۱۷ امروز وضعیت دقیق را اطلاع می‌دهم.",
+        why="Leads with ownership and honest admission ('unacceptable') instead of formulaic validation; gives a personal commitment with a specific deadline.",
+    ),
+    GoldenExample(
+        id="customer_calm_refund_threat",
+        relationship_type="customer",
+        situation="تهدید مشتری به شکایت و پس گرفتن پول",
+        user_goal="calm_conflict",
+        incoming="یا همین امروز پولم رو برمی‌گردونید یا شکایت می‌کنم.",
+        reply="ناراحتی شما کاملاً قابل درک است. درخواست بازگشت وجه را همین حالا ثبت می‌کنم؛ طبق رویه تا ۴۸ ساعت کاری به حساب شما برمی‌گردد و شماره‌ی پیگیری را برایتان ارسال می‌کنم.",
+        why="De-escalates the threat by simply granting the legitimate request with a concrete timeline and tracking — removes the need for conflict.",
     ),
 ]
 
@@ -639,6 +783,44 @@ _FAMILY: list[GoldenExample] = [
         reply="راست می‌گی، دلم برای حرفامون تنگ شده. این هفته یه روز بریم بیرون فقط خودمون دوتا، باشه؟",
         why="فاصله را صادقانه می‌پذیرد؛ دلتنگی را می‌گوید؛ قدمِ مشخص و گرم برای ترمیم پیشنهاد می‌کند.",
     ),
+    # --- make_them_accountable ---
+    GoldenExample(
+        id="family_accountable_sibling_noshow",
+        relationship_type="family",
+        situation="نیومدن خواهر/برادر سر قرار بیمارستان مادر",
+        user_goal="make_them_accountable",
+        incoming="نشد بیام دیگه، تو که بودی.",
+        reply="آره بودم، ولی قرارمون این بود که با هم باشیم. دفعه‌ی بعد یا بیا، یا از قبل بگو که بدونم همه‌چی گردن منه.",
+        why="Names the broken agreement, not the person's character; gives two concrete acceptable behaviors instead of guilt.",
+    ),
+    GoldenExample(
+        id="family_accountable_broken_promise",
+        relationship_type="family",
+        situation="زیر قول زدن عضو خانواده و عادی‌سازی آن",
+        user_goal="make_them_accountable",
+        incoming="حالا مگه چی شده؟ خانواده‌ایم دیگه، این حرفا رو نداریم.",
+        reply="اتفاقاً چون خانواده‌ایم برام مهمه. قول داده بودی و انجام نشد؛ فقط بگو کی انجامش می‌دی که دیگه پیگیری نکنم.",
+        why="Flips the 'we're family' deflection into the reason the standard matters; ends with a dated commitment request, not a lecture.",
+    ),
+    # --- improve_relationship ---
+    GoldenExample(
+        id="family_improve_parent_softstep",
+        relationship_type="family",
+        situation="گام نرم پدر/مادر بعد از مدت‌ها سردی",
+        user_goal="improve_relationship",
+        incoming="دیروز غذای موردعلاقه‌تو درست کردم، یادت بود؟",
+        reply="آره که یادمه، هیچ‌جا اون مزه نمیشه. این هفته یه شب میام پیشتون، دور هم باشیم.",
+        why="Catches the parent's indirect peace offering (food = love language) and answers it with presence, not words.",
+    ),
+    GoldenExample(
+        id="family_improve_distant_sibling",
+        relationship_type="family",
+        situation="گلایه‌ی ملایم خواهر/برادر از کم‌رنگ شدن رابطه",
+        user_goal="improve_relationship",
+        incoming="دیگه اصلاً از هم خبر نداریم. یادته قبلاً چقدر با هم بودیم؟",
+        reply="آره، و راستش خودمم دلم برای اون موقع‌ها تنگ شده. بیا از همین هفته یه کار ثابت بذاریم، حتی یه تماس کوتاه آخر هفته‌ها.",
+        why="Matches the vulnerability instead of explaining the distance; converts nostalgia into one small sustainable ritual.",
+    ),
 ]
 
 
@@ -689,6 +871,53 @@ _FRIEND: list[GoldenExample] = [
         incoming="نمیدونم بیام یا نه، شاید، ببینم چی میشه.",
         reply="اوکی ولی من باید برنامه‌مو بچینم. تا فردا ظهر قطعی بگو که بدونم رومی حساب کنم یا نه.",
         why="انعطاف را تا حدی می‌پذیرد؛ نیازِ خودش به قطعیت را روشن می‌گوید؛ مرزِ زمانیِ منصفانه می‌گذارد.",
+    ),
+    # --- avoid_needy ---
+    GoldenExample(
+        id="friend_avoid_needy_late_apology",
+        relationship_type="friend",
+        situation="عذرخواهی دیرهنگام دوست بابت بی‌خبری",
+        user_goal="avoid_needy",
+        incoming="ببخشید جواب ندادم، این هفته خیلی داغونم.",
+        reply="فدای سرت، اصلاً فکرشم نکن. هر وقت حالت جا اومد خبر بده، یه قهوه ازت طلب دارم.",
+        why="Zero guilt-tripping, zero interrogation; keeps warmth and a light future hook without pressure.",
+    ),
+    GoldenExample(
+        id="friend_avoid_needy_cancelled_plan",
+        relationship_type="friend",
+        situation="کنسل کردن قرار توسط دوست",
+        user_goal="avoid_needy",
+        incoming="این هفته نمی‌تونم بیام، برنامه‌م به‌هم ریخته.",
+        reply="اوکیه، اصلاً نگرانش نباش. هفته‌ی بعد یه روز بگو که جفتمون اوکی باشیم.",
+        why="Accepts gracefully and hands the next move back to the friend — the opposite of chasing.",
+    ),
+    GoldenExample(
+        id="friend_avoid_needy_too_many_messages",
+        relationship_type="friend",
+        situation="گلایه‌ی دوست از پیام زیاد",
+        user_goal="avoid_needy",
+        incoming="چرا انقدر پیام میدی؟ یه کم سرم شلوغه.",
+        reply="باشه، راحت باش. هر وقت سرت خلوت شد خودت بیا.",
+        why="No defense, no over-apology, no counter-attack; pulls back cleanly and restores symmetry in one move.",
+    ),
+    # --- make_them_accountable ---
+    GoldenExample(
+        id="friend_accountable_repeated_flaking",
+        relationship_type="friend",
+        situation="کوچیک‌شماری پیچوندن قرار تکراری",
+        user_goal="make_them_accountable",
+        incoming="ای بابا، حالا یه قرارو پیچوندم، چرا انقدر بزرگش می‌کنی؟",
+        reply="بحث یه قرار نیست، این چند ماه چند بار تکرار شده. من برات وقت می‌ذارم و همینو ازت می‌خوام. اگه برات سخته، از اول بگو که برنامه نچینم.",
+        why="Reframes from incident to pattern without name-calling; states the standard and offers an honest exit instead of an ultimatum.",
+    ),
+    GoldenExample(
+        id="friend_accountable_unreturned_loan",
+        relationship_type="friend",
+        situation="تعویق مبهم در پس دادن قرض",
+        user_goal="make_them_accountable",
+        incoming="حواسم نبود، حالا بعداً بهت میدم.",
+        reply="می‌دونم قصدی نداری، ولی سه هفته گذشته و منم حسابش روش بود. یه تاریخ مشخص بگو که خیال جفتمون راحت شه.",
+        why="Assumes good intent explicitly, then converts vague 'later' into a concrete commitment — accountability without accusation.",
     ),
 ]
 
