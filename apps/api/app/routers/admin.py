@@ -1,7 +1,11 @@
 import hmac
-from datetime import datetime, timedelta, timezone
+import os
+import sqlite3
+import tempfile
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.config import get_settings
 from app.database import db
@@ -530,6 +534,36 @@ def rule_engine_eval(x_admin_token: str | None = Header(default=None)):
 def rule_engine_candidate_cases(limit: int = 50, x_admin_token: str | None = Header(default=None)):
     require_admin(x_admin_token)
     return candidate_eval_cases(limit=limit)
+
+
+@router.get("/backup/db", include_in_schema=False)
+def download_db_backup(x_admin_token: str | None = Header(default=None)):
+    """Hot backup of the SQLite database — streams a byte-perfect copy."""
+    require_admin(x_admin_token)
+    from app.database import _sqlite_path
+
+    db_path = _sqlite_path()
+
+    def _stream():
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        try:
+            with sqlite3.connect(db_path) as src:
+                with sqlite3.connect(tmp_path) as dst:
+                    src.backup(dst)
+            with open(tmp_path, "rb") as f:
+                while chunk := f.read(65536):
+                    yield chunk
+        finally:
+            os.unlink(tmp_path)
+
+    filename = f"message_decoder_backup_{date.today().isoformat()}.db"
+    return StreamingResponse(
+        _stream(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _preview(value: str | None, max_length: int = 180) -> str | None:

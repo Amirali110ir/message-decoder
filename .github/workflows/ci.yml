@@ -31,3 +31,24 @@ jobs:
         # clear the copy-readiness bar (test_golden_examples_pass_deterministic_quality_bar).
         # This catches bad exemplars without needing any AI API key.
         run: pytest -q
+
+  web-checks:
+    name: Web typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (includes TypeScript check)
+        env:
+          NEXT_PUBLIC_API_URL: ""
+        run: npm run build:web

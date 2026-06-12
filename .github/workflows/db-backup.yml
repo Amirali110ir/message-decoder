@@ -1,0 +1,33 @@
+# Nightly backup of the SQLite database.
+#
+# Required GitHub configuration (Settings → Secrets and variables):
+#   secrets.ADMIN_TOKEN — value of the ADMIN_TOKEN env var on Liara
+#   vars.API_URL        — production API base URL, e.g. https://message-decoder-py.liara.run
+#
+# Backups are kept for 30 days as GitHub Actions artifacts.
+
+name: Nightly DB Backup
+
+on:
+  schedule:
+    - cron: "0 22 * * *"  # 22:00 UTC = 01:30 Tehran (IRST) next day
+  workflow_dispatch:        # allow manual trigger
+
+jobs:
+  backup:
+    name: Download + archive DB backup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download backup from API
+        run: |
+          curl -f --retry 3 --retry-delay 5 \
+            -H "X-Admin-Token: ${{ secrets.ADMIN_TOKEN }}" \
+            "${{ vars.API_URL }}/admin/backup/db" \
+            -o message_decoder_backup.db
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_number }}-${{ github.run_id }}
+          path: message_decoder_backup.db
+          retention-days: 30

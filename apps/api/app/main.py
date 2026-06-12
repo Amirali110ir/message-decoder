@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import init_db
+from app.limiter import RateLimitMiddleware
 from app.routers import admin, auth, contacts, decode, feedback, payments, telegram, user
 
 
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Message Decoder API", version="0.1.0", lifespan=lifespan)
 
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origin_list,

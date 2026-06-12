@@ -1,0 +1,48 @@
+# Deploy to Liara on every push to main.
+#
+# Required GitHub configuration (Settings → Secrets and variables):
+#   secrets.LIARA_TOKEN      — Liara API token (console → account settings → API tokens)
+#   vars.LIARA_APP_NAME      — Liara app name, e.g. message-decoder-py
+#   vars.NEXT_PUBLIC_API_URL — Production API base URL, e.g. https://message-decoder-py.liara.run
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Build + Deploy to Liara
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build web (static export)
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+        run: npm run build:web
+
+      - name: Install Liara CLI
+        run: npm install -g @liara/cli@latest
+
+      - name: Deploy to Liara
+        env:
+          LIARA_TOKEN: ${{ secrets.LIARA_TOKEN }}
+        run: |
+          liara deploy \
+            --app ${{ vars.LIARA_APP_NAME }} \
+            --path . \
+            --dockerfile Dockerfile \
+            --port 8000 \
+            --no-app-logs
