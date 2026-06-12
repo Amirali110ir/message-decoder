@@ -454,12 +454,35 @@ def send_smsir_otp(phone: str, code: str, settings: Settings) -> None:
     raise HTTPException(status_code=500, detail=f"Unsupported SMS.ir method: {settings.smsir_method}")
 
 
+OTP_RESEND_COOLDOWN_SECONDS = 60
+
+
+def _check_otp_cooldown(phone: str) -> None:
+    """Reject if an OTP was already sent to this phone within the cooldown window."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM auth_otps WHERE phone = ? AND consumed_at IS NULL",
+            (phone,),
+        ).fetchone()
+    if not row:
+        return
+    last_sent = _parse_iso(row["created_at"])
+    if last_sent and (_utc_now() - last_sent).total_seconds() < OTP_RESEND_COOLDOWN_SECONDS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"کد قبلی هنوز معتبر است. لطفاً {OTP_RESEND_COOLDOWN_SECONDS} ثانیه صبر کنید.",
+        )
+
+
 def request_otp_code(phone: str, settings: Settings) -> tuple[str | None, dict | None]:
     provider = settings.otp_provider.lower()
     code = normalize_digits(settings.dev_otp_code) if provider == "mock" else generate_otp_code()
     normalized_phone = normalize_digits(phone)
 
     logger.info("otp.request provider=%s phone=%s production=%s", provider, _mask_phone(normalized_phone), settings.is_production)
+
+    if provider != "mock":
+        _check_otp_cooldown(normalized_phone)
 
     telegram_payload = None
     if provider != "mock":
@@ -566,9 +589,11 @@ def verify_otp(phone: str, code: str, referral_code: str | None = None) -> tuple
                 conn.execute("UPDATE users SET referral_code = ? WHERE id = ?", (generate_referral_code(), user_id))
 
         token = new_id("sess")
+        session_ttl = settings.session_ttl_days
+        expires_at = (_utc_now() + timedelta(days=session_ttl)).isoformat()
         conn.execute(
-            "INSERT INTO auth_sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-            (token, user_id, now_iso()),
+            "INSERT INTO auth_sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token, user_id, now_iso(), expires_at),
         )
         conn.execute("UPDATE auth_otps SET consumed_at = ? WHERE phone = ?", (now_iso(), normalized_phone))
         return token, user_id, credit_balance
@@ -598,7 +623,12 @@ def get_current_user_id(authorization: str | None = Header(default=None)) -> str
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.removeprefix("Bearer ").strip()
     with db() as conn:
-        row = conn.execute("SELECT user_id FROM auth_sessions WHERE token = ?", (token,)).fetchone()
+        row = conn.execute(
+            "SELECT user_id, expires_at FROM auth_sessions WHERE token = ?", (token,)
+        ).fetchone()
     if row is None:
         raise HTTPException(status_code=401, detail="Invalid session")
+    expires_at = _parse_iso(row["expires_at"])
+    if expires_at is not None and _utc_now() > expires_at:
+        raise HTTPException(status_code=401, detail="Session expired")
     return str(row["user_id"])

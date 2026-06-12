@@ -116,6 +116,8 @@ class Settings:
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
+    session_ttl_days: int = field(default_factory=lambda: int(os.getenv("SESSION_TTL_DAYS", "30")))
+
     @property
     def is_production(self) -> bool:
         return os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "")).lower() in {"prod", "production"}
@@ -125,7 +127,7 @@ class Settings:
             return
         insecure_values = {
             "JWT_SECRET": self.jwt_secret == "change-me-in-production",
-            "ADMIN_TOKEN": self.admin_token == "change-me-admin-token",
+            "ADMIN_TOKEN": self.admin_token == "change-me-admin-token" or len(self.admin_token) < 32,
             "ADMIN_PHONE": not self.admin_phone,
             "ADMIN_PASSWORD": not self.admin_password,
         }
