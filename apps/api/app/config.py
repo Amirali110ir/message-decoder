@@ -108,7 +108,7 @@ class Settings:
     cors_origins: str = field(
         default_factory=lambda: os.getenv(
             "CORS_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002,https://message-decoder-py.liara.run,https://message-decoder-amirali6020s-projects.vercel.app,https://message-decoder-enlqw4wua-amirali6020s-projects.vercel.app,https://message-decoder-45lyfp2vk-amirali6020s-projects.vercel.app",
+            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002,https://message-decoder-py.liara.run,https://message-decoder-amirali6020s-projects.vercel.app",
         )
     )
 
