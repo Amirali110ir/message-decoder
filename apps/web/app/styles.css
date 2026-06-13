@@ -2212,6 +2212,106 @@ select:focus {
   line-height: 20px;
 }
 
+.admin-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--cds-spacing-04);
+  flex-wrap: wrap;
+}
+
+.admin-heading-actions > span {
+  color: var(--cds-text-secondary);
+  font-size: var(--fs-13);
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.admin-heading-actions input[type="date"] {
+  padding: var(--cds-spacing-03) var(--cds-spacing-04);
+  border: 1px solid var(--cds-border-subtle-00);
+  background: var(--cds-field);
+  color: var(--cds-text-primary);
+  font-family: inherit;
+}
+
+.admin-csv-button {
+  padding-block: var(--cds-spacing-03);
+}
+
+.admin-autorefresh {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--cds-spacing-03);
+}
+
+.admin-autorefresh input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cds-spacing-04);
+  margin-top: var(--cds-spacing-05);
+}
+
+.admin-pager-info {
+  color: var(--cds-text-secondary);
+  font-size: var(--fs-13);
+  line-height: 20px;
+}
+
+.admin-panel-hint {
+  color: var(--cds-text-secondary);
+  font-size: var(--fs-13);
+  line-height: 20px;
+  margin-bottom: var(--cds-spacing-05);
+}
+
+.admin-reco-list {
+  margin: var(--cds-spacing-05) 0;
+  padding-inline-start: var(--cds-spacing-06);
+  display: grid;
+  gap: var(--cds-spacing-03);
+  color: var(--cds-text-primary);
+  font-size: var(--fs-14);
+  line-height: 22px;
+}
+
+.admin-reco-list li {
+  list-style: disc;
+}
+
+.admin-subsection {
+  margin-top: var(--cds-spacing-07);
+  padding-top: var(--cds-spacing-06);
+  border-top: 1px solid var(--cds-border-subtle-00);
+}
+
+.admin-subsection h3 {
+  margin-top: var(--cds-spacing-02);
+  color: var(--cds-text-primary);
+  font-size: var(--fs-18);
+  line-height: 26px;
+}
+
+.admin-json {
+  margin-top: var(--cds-spacing-05);
+  padding: var(--cds-spacing-05);
+  background: var(--cds-layer-01, #f4f4f4);
+  border: 1px solid var(--cds-border-subtle-00);
+  color: var(--cds-text-primary);
+  font-size: var(--fs-12);
+  line-height: 18px;
+  direction: ltr;
+  text-align: left;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .admin-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--cds-border-subtle-00);

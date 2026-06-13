@@ -636,6 +636,147 @@ export function adminDecodeList(
   );
 }
 
+// ─── Admin: learning & rule-engine ────────────────────────────────────────────
+
+export type LearningReport = {
+  metrics: {
+    report_date: string;
+    window_start: string;
+    window_end: string;
+    total_decodes: number;
+    paid_decodes: number;
+    copied_paid_decodes: number;
+    copy_rate: number;
+    feedback_count: number;
+    positive_feedback_rate: number;
+    negative_feedback_rate: number;
+    average_regret_score: number | null;
+    lens_mix: { dominant_lens: string; count: number }[];
+    safety_mix: { safety_label: string; count: number }[];
+    model_mix: {
+      free_model_version: string;
+      paid_model_version: string;
+      prompt_version: string;
+      rule_engine_version: string;
+      count: number;
+    }[];
+  };
+  recommendations: string[];
+};
+
+export function adminLearningDaily(token: string, reportDate = "", persist = false) {
+  const params = new URLSearchParams();
+  if (reportDate) params.set("report_date", reportDate);
+  if (persist) params.set("persist", "true");
+  const query = params.toString();
+  return request<LearningReport>(`/admin/learning/daily${query ? `?${query}` : ""}`, {
+    headers: { "X-Admin-Token": token }
+  });
+}
+
+export type RuleEvalResult = {
+  id: string;
+  lens_ok: boolean;
+  safety_ok: boolean;
+  expected_lens: string;
+  actual_lens: string;
+  expected_safety_label: string;
+  actual_safety_label: string;
+  expected_tones: string[];
+  actual_tones: string[];
+  missing_tones: string[];
+  lens_scores: Record<string, number>;
+  evidence_terms: string[];
+  playbook_must_include: string[];
+};
+
+export type RuleEngineEval = {
+  rule_engine_version: string;
+  metrics: {
+    case_count: number;
+    lens_accuracy: number;
+    safety_accuracy: number;
+    tone_recall: number;
+    lens_confusion: Record<string, number>;
+  };
+  misses: RuleEvalResult[];
+  recommendations: string[];
+  results: RuleEvalResult[];
+};
+
+export function adminRuleEngineEval(token: string) {
+  return request<RuleEngineEval>("/admin/rule-engine/eval", {
+    headers: { "X-Admin-Token": token }
+  });
+}
+
+export type RuleCandidateCase = {
+  feedback_id: string;
+  decode_id: string;
+  created_at: string;
+  message_preview: string | null;
+  relationship_type: string;
+  user_goal: string;
+  feedback_signals: {
+    user_rating: string | null;
+    outcome: string | null;
+    regret_score: number | null;
+    user_comment: string | null;
+  };
+  current_classification: {
+    dominant_lens: string;
+    safety_label: string;
+    tones: string[];
+    lens_scores: Record<string, number>;
+    evidence_terms: string[];
+  };
+  suggested_eval_case: Record<string, unknown>;
+};
+
+export type RuleCandidateResponse = {
+  rule_engine_version: string;
+  candidate_count: number;
+  candidate_cases: RuleCandidateCase[];
+  selection_rule: string;
+};
+
+export function adminRuleEngineCandidates(token: string, limit = 50) {
+  return request<RuleCandidateResponse>(`/admin/rule-engine/candidate-cases?limit=${limit}`, {
+    headers: { "X-Admin-Token": token }
+  });
+}
+
+export type RuleExplainResponse = {
+  analysis: Record<string, unknown> & {
+    dominant_lens?: string;
+    safety_label?: string;
+    tones?: string[];
+    lens_scores?: Record<string, number>;
+    evidence_terms?: string[];
+    confidence_level?: string;
+  };
+  paid_reply_playbook: Record<string, unknown> & {
+    must_include?: string[];
+  };
+};
+
+export function adminRuleEngineExplain(
+  token: string,
+  input: {
+    message_text: string;
+    relationship_type: string;
+    user_goal: string;
+    optional_context?: string;
+    privacy_consent?: "none" | "history" | "anonymized";
+  }
+) {
+  return request<RuleExplainResponse>("/admin/rule-engine/explain", {
+    method: "POST",
+    headers: { "X-Admin-Token": token },
+    body: JSON.stringify({ privacy_consent: "none", ...input })
+  });
+}
+
 // ─── Contacts CRUD ────────────────────────────────────────────────────────────
 
 export function getContacts(token: string) {

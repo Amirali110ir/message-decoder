@@ -1,15 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { LockKeyhole, LogIn, LogOut, MinusCircle, PlusCircle, RefreshCw, Search, Send } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Beaker, BrainCircuit, ChevronLeft, ChevronRight, Download, FlaskConical, LockKeyhole, LogIn, LogOut, MinusCircle, PlusCircle, RefreshCw, Search, Send } from "lucide-react";
 import {
   adminActivityList,
+  adminLearningDaily,
   adminLogin,
   adminDecodeList,
   adminGrantAllCredits,
   adminGrantCredits,
   adminMetrics,
+  adminRuleEngineCandidates,
+  adminRuleEngineEval,
+  adminRuleEngineExplain,
   adminUserList,
+  LearningReport,
+  RuleCandidateResponse,
+  RuleEngineEval,
+  RuleExplainResponse,
   telegramAdminMetrics,
   telegramAdminActivity,
   telegramAdminUsers,
@@ -26,6 +34,10 @@ type ActivityList = Awaited<ReturnType<typeof adminActivityList>>;
 type TelegramMetrics = Awaited<ReturnType<typeof telegramAdminMetrics>>;
 type TelegramUsers = Awaited<ReturnType<typeof telegramAdminUsers>>;
 type TelegramActivityList = Awaited<ReturnType<typeof telegramAdminActivity>>;
+
+const USER_PAGE_SIZE = 50;
+const ACTIVITY_PAGE_SIZE = 50;
+const DECODE_PAGE_SIZE = 50;
 
 const defaultReleaseNote = `آپدیت جدید Message Decoder
 
@@ -64,6 +76,30 @@ export default function AdminPage() {
   const [actionStatus, setActionStatus] = useState("");
   const [error, setError] = useState("");
 
+  // صفحه‌بندی
+  const [userOffset, setUserOffset] = useState(0);
+  const [activityOffset, setActivityOffset] = useState(0);
+  const [decodeOffset, setDecodeOffset] = useState(0);
+
+  // یادگیری و موتور قانون
+  const [learning, setLearning] = useState<LearningReport | null>(null);
+  const [learningDate, setLearningDate] = useState("");
+  const [learningLoading, setLearningLoading] = useState(false);
+  const [ruleEval, setRuleEval] = useState<RuleEngineEval | null>(null);
+  const [ruleEvalLoading, setRuleEvalLoading] = useState(false);
+  const [candidates, setCandidates] = useState<RuleCandidateResponse | null>(null);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [explainMessage, setExplainMessage] = useState("");
+  const [explainRelationship, setExplainRelationship] = useState("romantic");
+  const [explainGoal, setExplainGoal] = useState("understand_only");
+  const [explainResult, setExplainResult] = useState<RuleExplainResponse | null>(null);
+  const [explainLoading, setExplainLoading] = useState(false);
+
+  // رفرش خودکار
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const tokenRef = useRef("");
+  tokenRef.current = token;
+
   async function login() {
     setError("");
     setActionStatus("");
@@ -92,13 +128,27 @@ export default function AdminPage() {
     setTelegramUsers(null);
     setTelegramActivities(null);
     setBroadcastResults([]);
+    setLearning(null);
+    setRuleEval(null);
+    setCandidates(null);
+    setExplainResult(null);
+    setAutoRefresh(false);
+    setUserOffset(0);
+    setActivityOffset(0);
+    setDecodeOffset(0);
   }
 
-  async function loadDashboard() {
-    await loadDashboardWithToken(token);
+  async function loadDashboard(offsets?: { user?: number; activity?: number; decode?: number }) {
+    await loadDashboardWithToken(token, offsets);
   }
 
-  async function loadDashboardWithToken(activeToken: string) {
+  async function loadDashboardWithToken(
+    activeToken: string,
+    offsets?: { user?: number; activity?: number; decode?: number }
+  ) {
+    const userOff = offsets?.user ?? userOffset;
+    const activityOff = offsets?.activity ?? activityOffset;
+    const decodeOff = offsets?.decode ?? decodeOffset;
     setError("");
     setLoading(true);
     try {
@@ -107,13 +157,14 @@ export default function AdminPage() {
         dominant_lens: dominantLens,
         safety_label: safetyLabel,
         prompt_version: promptVersion,
-        limit: 50
+        limit: DECODE_PAGE_SIZE,
+        offset: decodeOff
       };
       const results = await Promise.allSettled([
         adminMetrics(activeToken),
         adminDecodeList(activeToken, filters),
-        adminUserList(activeToken, { q: userQuery, limit: 100 }),
-        adminActivityList(activeToken, { q: userQuery, limit: 80 }),
+        adminUserList(activeToken, { q: userQuery, limit: USER_PAGE_SIZE, offset: userOff }),
+        adminActivityList(activeToken, { q: userQuery, limit: ACTIVITY_PAGE_SIZE, offset: activityOff }),
         telegramAdminUsers(activeToken, userQuery),
         telegramAdminMetrics(activeToken),
         telegramAdminActivity(activeToken, userQuery)
@@ -140,17 +191,27 @@ export default function AdminPage() {
     }
   }
 
-  async function adjustCredits(phone: string, amount: number) {
+  async function adjustCredits(target: { phone?: string | null; userId?: string | null }, amount: number) {
+    const phone = target.phone || "";
+    const userId = target.userId || "";
+    const label = phone || `کاربر تلگرام ${userId}`;
     const verb = amount > 0 ? "اضافه" : "کم";
-    if (!window.confirm(`برای شماره ${phone}، ${Math.abs(amount)} اعتبار ${verb} شود؟`)) return;
+    if (!window.confirm(`برای ${label}، ${Math.abs(amount)} اعتبار ${verb} شود؟`)) return;
     setError("");
     setActionStatus("");
     try {
-      await Promise.allSettled([
-        adminGrantCredits(token, { phone, credits: amount }),
-        telegramGrantCredits(token, { phone, credits: amount })
-      ]);
-      setActionStatus(`${amount} اعتبار برای شماره ${phone} اعمال شد، اگر در یکی از دیتابیس‌ها وجود داشته باشد.`);
+      if (phone) {
+        await Promise.allSettled([
+          adminGrantCredits(token, { phone, credits: amount }),
+          telegramGrantCredits(token, { phone, credits: amount })
+        ]);
+        setActionStatus(`${amount} اعتبار برای شماره ${phone} اعمال شد، اگر در یکی از دیتابیس‌ها وجود داشته باشد.`);
+      } else if (userId) {
+        await telegramGrantCredits(token, { user_id: userId, credits: amount });
+        setActionStatus(`${amount} اعتبار برای کاربر تلگرام اعمال شد.`);
+      } else {
+        return;
+      }
       await loadDashboard();
     } catch (err) {
       setError(err instanceof Error ? err.message : "اعتبار اعمال نشد.");
@@ -158,7 +219,7 @@ export default function AdminPage() {
   }
 
   async function grantToPhone() {
-    await adjustCredits(grantPhone, grantAmount);
+    await adjustCredits({ phone: grantPhone }, grantAmount);
   }
 
   async function grantFiveToAll() {
@@ -187,6 +248,95 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : "ریلیس نوت ارسال نشد.");
     }
   }
+
+  // جستجوی تازه: offsetها صفر شوند
+  function runSearch() {
+    setUserOffset(0);
+    setActivityOffset(0);
+    setDecodeOffset(0);
+    void loadDashboard({ user: 0, activity: 0, decode: 0 });
+  }
+
+  function pageUsers(delta: number) {
+    const next = Math.max(0, userOffset + delta * USER_PAGE_SIZE);
+    setUserOffset(next);
+    void loadDashboard({ user: next });
+  }
+
+  function pageActivity(delta: number) {
+    const next = Math.max(0, activityOffset + delta * ACTIVITY_PAGE_SIZE);
+    setActivityOffset(next);
+    void loadDashboard({ activity: next });
+  }
+
+  function pageDecodes(delta: number) {
+    const next = Math.max(0, decodeOffset + delta * DECODE_PAGE_SIZE);
+    setDecodeOffset(next);
+    void loadDashboard({ decode: next });
+  }
+
+  async function loadLearning() {
+    setError("");
+    setLearningLoading(true);
+    try {
+      setLearning(await adminLearningDaily(token, learningDate));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "گزارش یادگیری دریافت نشد.");
+    } finally {
+      setLearningLoading(false);
+    }
+  }
+
+  async function loadRuleEval() {
+    setError("");
+    setRuleEvalLoading(true);
+    try {
+      setRuleEval(await adminRuleEngineEval(token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ارزیابی موتور قانون انجام نشد.");
+    } finally {
+      setRuleEvalLoading(false);
+    }
+  }
+
+  async function loadCandidates() {
+    setError("");
+    setCandidatesLoading(true);
+    try {
+      setCandidates(await adminRuleEngineCandidates(token, 50));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "کیس‌های کاندید دریافت نشد.");
+    } finally {
+      setCandidatesLoading(false);
+    }
+  }
+
+  async function runExplain() {
+    setError("");
+    setExplainLoading(true);
+    try {
+      setExplainResult(
+        await adminRuleEngineExplain(token, {
+          message_text: explainMessage,
+          relationship_type: explainRelationship,
+          user_goal: explainGoal
+        })
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تست موتور قانون انجام نشد.");
+    } finally {
+      setExplainLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!autoRefresh || !token) return;
+    const id = window.setInterval(() => {
+      if (tokenRef.current) void loadDashboard();
+    }, 30000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh, token]);
 
   return (
     <main className="page admin-page">
@@ -281,10 +431,14 @@ export default function AdminPage() {
                 <span className="label">جستجوی کاربر/شماره</span>
                 <input value={userQuery} onChange={(event) => setUserQuery(event.target.value)} placeholder="0912 یا کد معرفی" />
               </label>
-              <button className="primary admin-load-button" onClick={loadDashboard} disabled={loading}>
+              <button className="primary admin-load-button" onClick={runSearch} disabled={loading}>
                 {loading ? <RefreshCw className="animate-spin" size={16} /> : <Search size={16} />}
                 <span>بارگذاری داشبورد</span>
               </button>
+              <label className="field admin-autorefresh">
+                <span className="label">رفرش خودکار (۳۰ث)</span>
+                <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
+              </label>
               <button className="secondary admin-load-button" onClick={logout}>
                 <LogOut size={16} />
                 <span>خروج امن</span>
@@ -380,7 +534,10 @@ export default function AdminPage() {
                   <span className="label">Decode listing</span>
                   <h2>نمای ناشناس تحلیل‌ها</h2>
                 </div>
-                <span>{decodes.total} مورد</span>
+                <div className="admin-heading-actions">
+                  <span>{decodes.total} مورد</span>
+                  <CsvButton rows={decodes.items} filename="decodes" />
+                </div>
               </div>
               <div className="admin-table-wrap">
                 <table className="admin-table">
@@ -416,11 +573,12 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               </div>
+              <Pager offset={decodeOffset} count={decodes.items.length} pageSize={DECODE_PAGE_SIZE} total={decodes.total} loading={loading} onPage={pageDecodes} />
             </div>
           ) : null}
 
           {users ? (
-            <UserTable title="کاربران وب/API" items={users.items} onAdjust={adjustCredits} />
+            <UserTable title="کاربران وب/API" items={users.items} onAdjust={adjustCredits} offset={userOffset} total={users.total} pageSize={USER_PAGE_SIZE} loading={loading} onPage={pageUsers} />
           ) : null}
 
           {telegramUsers ? (
@@ -428,12 +586,33 @@ export default function AdminPage() {
           ) : null}
 
           {activities ? (
-            <ActivityTable title="اتفاقات کاربران وب/API" source="Web/API" items={activities.items} />
+            <ActivityTable title="اتفاقات کاربران وب/API" source="Web/API" items={activities.items} offset={activityOffset} total={activities.total} pageSize={ACTIVITY_PAGE_SIZE} loading={loading} onPage={pageActivity} />
           ) : null}
 
           {telegramActivities ? (
             <ActivityTable title="اتفاقات کاربران تلگرام" source="Telegram D1" items={telegramActivities.items} />
           ) : null}
+
+          <LearningPanel report={learning} loading={learningLoading} date={learningDate} setDate={setLearningDate} onLoad={loadLearning} disabled={!token} />
+
+          <RuleEnginePanel
+            evalResult={ruleEval}
+            evalLoading={ruleEvalLoading}
+            onLoadEval={loadRuleEval}
+            candidates={candidates}
+            candidatesLoading={candidatesLoading}
+            onLoadCandidates={loadCandidates}
+            explainResult={explainResult}
+            explainLoading={explainLoading}
+            explainMessage={explainMessage}
+            setExplainMessage={setExplainMessage}
+            explainRelationship={explainRelationship}
+            setExplainRelationship={setExplainRelationship}
+            explainGoal={explainGoal}
+            setExplainGoal={setExplainGoal}
+            onRunExplain={runExplain}
+            disabled={!token}
+          />
         </div>
       </section>
       )}
@@ -441,7 +620,18 @@ export default function AdminPage() {
   );
 }
 
-function UserTable({ title, items, onAdjust }: { title: string; items: UserList["items"]; onAdjust: (phone: string, amount: number) => void }) {
+type AdjustTarget = { phone?: string | null; userId?: string | null };
+
+function UserTable({ title, items, onAdjust, offset, total, pageSize, loading, onPage }: {
+  title: string;
+  items: UserList["items"];
+  onAdjust: (target: AdjustTarget, amount: number) => void;
+  offset: number;
+  total: number;
+  pageSize: number;
+  loading: boolean;
+  onPage: (delta: number) => void;
+}) {
   return (
     <div className="panel-card">
       <div className="admin-list-heading">
@@ -449,7 +639,10 @@ function UserTable({ title, items, onAdjust }: { title: string; items: UserList[
           <span className="label">Users</span>
           <h2>{title}</h2>
         </div>
-        <span>{items.length} مورد</span>
+        <div className="admin-heading-actions">
+          <span>{total} مورد</span>
+          <CsvButton rows={items} filename="web-users" />
+        </div>
       </div>
       <div className="admin-table-wrap">
         <table className="admin-table">
@@ -477,8 +670,8 @@ function UserTable({ title, items, onAdjust }: { title: string; items: UserList[
                 <td>{item.decodes_count} تحلیل · {item.paid_decodes_count} کامل · {item.contacts_count} مخاطب</td>
                 <td>
                   <div className="admin-badges">
-                    <button className="icon-button" onClick={() => item.phone && onAdjust(item.phone, 1)} disabled={!item.phone} aria-label="افزودن یک اعتبار"><PlusCircle size={16} /></button>
-                    <button className="icon-button" onClick={() => item.phone && onAdjust(item.phone, -1)} disabled={!item.phone} aria-label="کم کردن یک اعتبار"><MinusCircle size={16} /></button>
+                    <button className="icon-button" onClick={() => item.phone && onAdjust({ phone: item.phone }, 1)} disabled={!item.phone} aria-label="افزودن یک اعتبار"><PlusCircle size={16} /></button>
+                    <button className="icon-button" onClick={() => item.phone && onAdjust({ phone: item.phone }, -1)} disabled={!item.phone} aria-label="کم کردن یک اعتبار"><MinusCircle size={16} /></button>
                   </div>
                 </td>
               </tr>
@@ -486,11 +679,12 @@ function UserTable({ title, items, onAdjust }: { title: string; items: UserList[
           </tbody>
         </table>
       </div>
+      <Pager offset={offset} count={items.length} pageSize={pageSize} total={total} loading={loading} onPage={onPage} />
     </div>
   );
 }
 
-function TelegramUserTable({ title, items, onAdjust }: { title: string; items: TelegramUsers["items"]; onAdjust: (phone: string, amount: number) => void }) {
+function TelegramUserTable({ title, items, onAdjust }: { title: string; items: TelegramUsers["items"]; onAdjust: (target: AdjustTarget, amount: number) => void }) {
   return (
     <div className="panel-card">
       <div className="admin-list-heading">
@@ -498,7 +692,10 @@ function TelegramUserTable({ title, items, onAdjust }: { title: string; items: T
           <span className="label">Telegram D1</span>
           <h2>{title}</h2>
         </div>
-        <span>{items.length} مورد</span>
+        <div className="admin-heading-actions">
+          <span>{items.length} مورد</span>
+          <CsvButton rows={items} filename="telegram-users" />
+        </div>
       </div>
       <div className="admin-table-wrap">
         <table className="admin-table">
@@ -528,8 +725,8 @@ function TelegramUserTable({ title, items, onAdjust }: { title: string; items: T
                 <td>{item.decodes_count ?? 0} تحلیل · {item.paid_decodes_count ?? 0} کامل</td>
                 <td>
                   <div className="admin-badges">
-                    <button className="icon-button" onClick={() => item.phone && onAdjust(item.phone, 1)} disabled={!item.phone} aria-label="افزودن یک اعتبار"><PlusCircle size={16} /></button>
-                    <button className="icon-button" onClick={() => item.phone && onAdjust(item.phone, -1)} disabled={!item.phone} aria-label="کم کردن یک اعتبار"><MinusCircle size={16} /></button>
+                    <button className="icon-button" onClick={() => onAdjust({ phone: item.phone, userId: item.id }, 1)} aria-label="افزودن یک اعتبار"><PlusCircle size={16} /></button>
+                    <button className="icon-button" onClick={() => onAdjust({ phone: item.phone, userId: item.id }, -1)} aria-label="کم کردن یک اعتبار"><MinusCircle size={16} /></button>
                   </div>
                 </td>
               </tr>
@@ -541,7 +738,16 @@ function TelegramUserTable({ title, items, onAdjust }: { title: string; items: T
   );
 }
 
-function ActivityTable({ title, source, items }: { title: string; source: string; items: ActivityList["items"] | TelegramActivityList["items"] }) {
+function ActivityTable({ title, source, items, offset, total, pageSize, loading, onPage }: {
+  title: string;
+  source: string;
+  items: ActivityList["items"] | TelegramActivityList["items"];
+  offset?: number;
+  total?: number;
+  pageSize?: number;
+  loading?: boolean;
+  onPage?: (delta: number) => void;
+}) {
   return (
     <div className="panel-card">
       <div className="admin-list-heading">
@@ -549,7 +755,10 @@ function ActivityTable({ title, source, items }: { title: string; source: string
           <span className="label">{source}</span>
           <h2>{title}</h2>
         </div>
-        <span>{items.length} مورد آخر</span>
+        <div className="admin-heading-actions">
+          <span>{total ?? items.length} مورد</span>
+          <CsvButton rows={items} filename={`activity-${source.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} />
+        </div>
       </div>
       <div className="admin-table-wrap">
         <table className="admin-table admin-activity-table">
@@ -582,6 +791,9 @@ function ActivityTable({ title, source, items }: { title: string; source: string
           </tbody>
         </table>
       </div>
+      {onPage ? (
+        <Pager offset={offset ?? 0} count={items.length} pageSize={pageSize ?? items.length} total={total ?? items.length} loading={loading ?? false} onPage={onPage} />
+      ) : null}
     </div>
   );
 }
@@ -631,6 +843,311 @@ function Metric({ title, value }: { title: string; value: string | number }) {
       <p>{value}</p>
     </div>
   );
+}
+
+function Pager({ offset, count, pageSize, total, loading, onPage }: {
+  offset: number;
+  count: number;
+  pageSize: number;
+  total: number;
+  loading: boolean;
+  onPage: (delta: number) => void;
+}) {
+  const from = total === 0 ? 0 : offset + 1;
+  const to = offset + count;
+  const hasPrev = offset > 0;
+  const hasNext = to < total;
+  if (!hasPrev && !hasNext) return null;
+  return (
+    <div className="admin-pager">
+      <button className="secondary admin-load-button" onClick={() => onPage(-1)} disabled={!hasPrev || loading}>
+        <ChevronRight size={16} />
+        <span>قبلی</span>
+      </button>
+      <span className="admin-pager-info">{from}–{to} از {total}</span>
+      <button className="secondary admin-load-button" onClick={() => onPage(1)} disabled={!hasNext || loading}>
+        <span>بعدی</span>
+        <ChevronLeft size={16} />
+      </button>
+    </div>
+  );
+}
+
+function CsvButton({ rows, filename }: { rows: readonly object[]; filename: string }) {
+  if (!rows.length) return null;
+  return (
+    <button className="secondary admin-load-button admin-csv-button" onClick={() => downloadCsv(rows as Record<string, unknown>[], filename)} aria-label="خروجی CSV">
+      <Download size={16} />
+      <span>CSV</span>
+    </button>
+  );
+}
+
+function LearningPanel({ report, loading, date, setDate, onLoad, disabled }: {
+  report: LearningReport | null;
+  loading: boolean;
+  date: string;
+  setDate: (value: string) => void;
+  onLoad: () => void;
+  disabled: boolean;
+}) {
+  const m = report?.metrics;
+  return (
+    <div className="panel-card">
+      <div className="admin-list-heading">
+        <div>
+          <span className="label">Learning loop</span>
+          <h2>گزارش یادگیری روزانه</h2>
+        </div>
+        <div className="admin-heading-actions">
+          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} aria-label="تاریخ گزارش" />
+          <button className="primary admin-load-button" onClick={onLoad} disabled={disabled || loading}>
+            {loading ? <RefreshCw className="animate-spin" size={16} /> : <BrainCircuit size={16} />}
+            <span>دریافت گزارش</span>
+          </button>
+        </div>
+      </div>
+      {m ? (
+        <>
+          <p className="admin-panel-hint">پنجره: {m.report_date} (دیفالت: دیروز UTC)</p>
+          <div className="result">
+            <Metric title="کل تحلیل‌ها" value={m.total_decodes} />
+            <Metric title="تحلیل کامل" value={m.paid_decodes} />
+            <Metric title="نرخ کپی" value={`${Math.round(m.copy_rate * 100)}٪`} />
+            <Metric title="فیدبک" value={m.feedback_count} />
+            <Metric title="فیدبک مثبت" value={`${Math.round(m.positive_feedback_rate * 100)}٪`} />
+            <Metric title="فیدبک منفی" value={`${Math.round(m.negative_feedback_rate * 100)}٪`} />
+            <Metric title="میانگین پشیمانی" value={m.average_regret_score ?? "—"} />
+            <Metric title="ترکیب لنز" value={m.lens_mix.map((x) => `${x.dominant_lens}: ${x.count}`).join("، ") || "—"} />
+            <Metric title="ترکیب ایمنی" value={m.safety_mix.map((x) => `${x.safety_label}: ${x.count}`).join("، ") || "—"} />
+          </div>
+          {report?.recommendations?.length ? (
+            <ul className="admin-reco-list">
+              {report.recommendations.map((rec, index) => (
+                <li key={index}>{rec}</li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : (
+        <p className="admin-panel-hint">برای دیدن متریک‌های روزانه و توصیه‌های خودکار، یک تاریخ انتخاب کنید (یا خالی بگذارید برای دیروز) و «دریافت گزارش» را بزنید.</p>
+      )}
+    </div>
+  );
+}
+
+function RuleEnginePanel(props: {
+  evalResult: RuleEngineEval | null;
+  evalLoading: boolean;
+  onLoadEval: () => void;
+  candidates: RuleCandidateResponse | null;
+  candidatesLoading: boolean;
+  onLoadCandidates: () => void;
+  explainResult: RuleExplainResponse | null;
+  explainLoading: boolean;
+  explainMessage: string;
+  setExplainMessage: (value: string) => void;
+  explainRelationship: string;
+  setExplainRelationship: (value: string) => void;
+  explainGoal: string;
+  setExplainGoal: (value: string) => void;
+  onRunExplain: () => void;
+  disabled: boolean;
+}) {
+  const ev = props.evalResult;
+  return (
+    <div className="panel-card">
+      <div className="admin-list-heading">
+        <div>
+          <span className="label">Rule engine</span>
+          <h2>کیفیت و تست موتور قانون</h2>
+        </div>
+        <div className="admin-heading-actions">
+          <button className="primary admin-load-button" onClick={props.onLoadEval} disabled={props.disabled || props.evalLoading}>
+            {props.evalLoading ? <RefreshCw className="animate-spin" size={16} /> : <FlaskConical size={16} />}
+            <span>ارزیابی</span>
+          </button>
+          <button className="secondary admin-load-button" onClick={props.onLoadCandidates} disabled={props.disabled || props.candidatesLoading}>
+            {props.candidatesLoading ? <RefreshCw className="animate-spin" size={16} /> : <Beaker size={16} />}
+            <span>کیس‌های کاندید</span>
+          </button>
+        </div>
+      </div>
+
+      {ev ? (
+        <>
+          <p className="admin-panel-hint">نسخه موتور: {ev.rule_engine_version} · {ev.metrics.case_count} کیس تست</p>
+          <div className="result">
+            <Metric title="دقت لنز" value={`${Math.round(ev.metrics.lens_accuracy * 100)}٪`} />
+            <Metric title="دقت ایمنی" value={`${Math.round(ev.metrics.safety_accuracy * 100)}٪`} />
+            <Metric title="بازیابی لحن" value={`${Math.round(ev.metrics.tone_recall * 100)}٪`} />
+            <Metric title="خطاها" value={ev.misses.length} />
+          </div>
+          {Object.keys(ev.metrics.lens_confusion).length ? (
+            <p className="admin-panel-hint">خطای لنز: {Object.entries(ev.metrics.lens_confusion).map(([k, v]) => `${k} (${v})`).join("، ")}</p>
+          ) : null}
+          {ev.recommendations?.length ? (
+            <ul className="admin-reco-list">
+              {ev.recommendations.map((rec, index) => (
+                <li key={index}>{rec}</li>
+              ))}
+            </ul>
+          ) : null}
+          {ev.misses.length ? (
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>کیس</th>
+                    <th>لنز (انتظار/واقعی)</th>
+                    <th>ایمنی (انتظار/واقعی)</th>
+                    <th>لحن‌های جاافتاده</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ev.misses.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.id}</td>
+                      <td><span className={row.lens_ok ? "" : "admin-pill high_risk"}>{row.expected_lens} → {row.actual_lens}</span></td>
+                      <td><span className={row.safety_ok ? "" : "admin-pill watch"}>{row.expected_safety_label} → {row.actual_safety_label}</span></td>
+                      <td>{row.missing_tones.join("، ") || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {props.candidates ? (
+        <div className="admin-subsection">
+          <div className="admin-list-heading">
+            <div>
+              <span className="label">Candidate cases</span>
+              <h3>نمونه‌های فیدبک منفی برای eval set</h3>
+            </div>
+            <div className="admin-heading-actions">
+              <span>{props.candidates.candidate_count} مورد</span>
+              <CsvButton rows={props.candidates.candidate_cases.map(flattenCandidate)} filename="rule-candidates" />
+            </div>
+          </div>
+          <p className="admin-panel-hint">{props.candidates.selection_rule}</p>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>زمان</th>
+                  <th>پیام</th>
+                  <th>رابطه/هدف</th>
+                  <th>طبقه‌بندی فعلی</th>
+                  <th>سیگنال فیدبک</th>
+                </tr>
+              </thead>
+              <tbody>
+                {props.candidates.candidate_cases.map((c) => (
+                  <tr key={c.feedback_id}>
+                    <td>{formatDate(c.created_at)}</td>
+                    <td>{c.message_preview || "—"}</td>
+                    <td>{relationshipLabel(c.relationship_type)} · {c.user_goal}</td>
+                    <td>{lensLabel(c.current_classification.dominant_lens)} · <span className={`admin-pill ${c.current_classification.safety_label}`}>{c.current_classification.safety_label}</span></td>
+                    <td>{[c.feedback_signals.user_rating, c.feedback_signals.outcome, c.feedback_signals.regret_score != null ? `regret ${c.feedback_signals.regret_score}` : null, c.feedback_signals.user_comment].filter(Boolean).join(" · ") || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="admin-subsection">
+        <div className="admin-list-heading">
+          <div>
+            <span className="label">Explain</span>
+            <h3>تست زندهٔ طبقه‌بندی یک پیام</h3>
+          </div>
+        </div>
+        <label className="field">
+          <span className="label">متن پیام</span>
+          <textarea value={props.explainMessage} onChange={(event) => props.setExplainMessage(event.target.value)} rows={3} placeholder="پیام را بنویس تا لنز، ایمنی و لحن‌ها را ببینی" />
+        </label>
+        <div className="admin-toolbar">
+          <label className="field">
+            <span className="label">نوع رابطه</span>
+            <select value={props.explainRelationship} onChange={(event) => props.setExplainRelationship(event.target.value)}>
+              <option value="romantic">رابطه عاطفی</option>
+              <option value="ex">اکس</option>
+              <option value="friend">دوست</option>
+              <option value="family">خانواده</option>
+              <option value="manager_colleague">مدیر یا همکار</option>
+              <option value="customer">مشتری</option>
+              <option value="unknown">نامشخص</option>
+            </select>
+          </label>
+          <label className="field">
+            <span className="label">هدف</span>
+            <select value={props.explainGoal} onChange={(event) => props.setExplainGoal(event.target.value)}>
+              <option value="understand_only">فقط درک</option>
+              <option value="calm_conflict">آرام‌کردن تنش</option>
+              <option value="set_boundary">مرزگذاری</option>
+              <option value="improve_relationship">بهبود رابطه</option>
+              <option value="professional_reply">پاسخ حرفه‌ای</option>
+              <option value="make_them_accountable">پاسخ‌گو کردن</option>
+              <option value="avoid_needy">نیازمند به‌نظر نرسیدن</option>
+              <option value="end_conversation">پایان گفتگو</option>
+            </select>
+          </label>
+          <button className="primary admin-load-button" onClick={props.onRunExplain} disabled={props.disabled || props.explainLoading || !props.explainMessage.trim()}>
+            {props.explainLoading ? <RefreshCw className="animate-spin" size={16} /> : <Search size={16} />}
+            <span>تحلیل کن</span>
+          </button>
+        </div>
+        {props.explainResult ? (
+          <pre className="admin-json">{JSON.stringify(props.explainResult, null, 2)}</pre>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function flattenCandidate(c: RuleCandidateResponse["candidate_cases"][number]) {
+  return {
+    feedback_id: c.feedback_id,
+    decode_id: c.decode_id,
+    created_at: c.created_at,
+    message_preview: c.message_preview,
+    relationship_type: c.relationship_type,
+    user_goal: c.user_goal,
+    dominant_lens: c.current_classification.dominant_lens,
+    safety_label: c.current_classification.safety_label,
+    user_rating: c.feedback_signals.user_rating,
+    outcome: c.feedback_signals.outcome,
+    regret_score: c.feedback_signals.regret_score,
+    user_comment: c.feedback_signals.user_comment
+  };
+}
+
+function downloadCsv(rows: Record<string, unknown>[], filename: string) {
+  if (!rows.length) return;
+  const headers = Array.from(rows.reduce((set, row) => {
+    Object.keys(row).forEach((key) => set.add(key));
+    return set;
+  }, new Set<string>()));
+  const escape = (value: unknown) => {
+    if (value === null || value === undefined) return "";
+    const text = typeof value === "object" ? JSON.stringify(value) : String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines = [headers.join(","), ...rows.map((row) => headers.map((key) => escape(row[key])).join(","))];
+  const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function formatDate(value: string) {
