@@ -254,6 +254,15 @@ def init_db() -> None:
         _ensure_column(conn, "contacts", "memory_summary", "TEXT")
         _ensure_column(conn, "contacts", "updated_at", "TEXT")
         _ensure_column(conn, "telegram_sessions", "pending_referral_code", "TEXT")
+        # Rich conversation state for the design-handoff Telegram flow.
+        _ensure_column(conn, "telegram_sessions", "forward_from_name", "TEXT")
+        _ensure_column(conn, "telegram_sessions", "forward_from_id", "TEXT")
+        _ensure_column(conn, "telegram_sessions", "contact_id", "TEXT")
+        _ensure_column(conn, "telegram_sessions", "memory_on", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "telegram_sessions", "consent", "TEXT")
+        _ensure_column(conn, "telegram_sessions", "last_free_json", "TEXT")
+        _ensure_column(conn, "telegram_sessions", "pending_note", "TEXT")
+        _ensure_column(conn, "telegram_sessions", "last_reply_text", "TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sms_send_logs_created_at ON sms_send_logs(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sms_send_logs_provider_status ON sms_send_logs(provider, status)")
 

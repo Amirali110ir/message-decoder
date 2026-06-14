@@ -917,6 +917,8 @@ def test_telegram_onboarding_contact_and_free_decode(monkeypatch):
     )
     assert contact.status_code == 200
 
+    # Forward-driven flow: any analyzable message returns an analysis card with
+    # the design's inline keyboard (first action = «رابطه و هدف رو می‌گم»).
     message = client.post(
         "/telegram/webhook",
         json={
@@ -928,6 +930,20 @@ def test_telegram_onboarding_contact_and_free_decode(monkeypatch):
         },
     )
     assert message.status_code == 200
+    assert "لنز غالب" in sent[-1]["text"]
+    assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "n:askrel"
+
+    askrel = client.post(
+        "/telegram/webhook",
+        json={
+            "callback_query": {
+                "from": {"id": 501},
+                "message": {"chat": {"id": 1001}},
+                "data": "n:askrel",
+            }
+        },
+    )
+    assert askrel.status_code == 200
     assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].startswith("rel:")
 
     client.post(
@@ -942,7 +958,7 @@ def test_telegram_onboarding_contact_and_free_decode(monkeypatch):
     )
     assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].startswith("goal:")
 
-    free = client.post(
+    deeper = client.post(
         "/telegram/webhook",
         json={
             "callback_query": {
@@ -952,9 +968,9 @@ def test_telegram_onboarding_contact_and_free_decode(monkeypatch):
             }
         },
     )
-    assert free.status_code == 200
-    assert "تحلیل سریع" in sent[-1]["text"]
-    assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"].startswith("paid:")
+    assert deeper.status_code == 200
+    # Deeper read ends with the «جواب پیشنهادی» keyboard.
+    assert sent[-1]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "n:replies"
 
 
 def test_telegram_ghost_free_decode_has_no_paid_button(monkeypatch):
@@ -974,11 +990,14 @@ def test_telegram_ghost_free_decode_has_no_paid_button(monkeypatch):
             }
         },
     )
-    client.post(
+    ghost = client.post(
         "/telegram/webhook",
         json={"message": {"chat": {"id": 1002}, "from": {"id": 502}, "text": "/ghost"}},
     )
-    client.post(
+    assert ghost.status_code == 200
+    assert "شبح" in sent[-1]["text"]
+
+    res = client.post(
         "/telegram/webhook",
         json={
             "message": {
@@ -988,29 +1007,93 @@ def test_telegram_ghost_free_decode_has_no_paid_button(monkeypatch):
             }
         },
     )
-    client.post(
-        "/telegram/webhook",
-        json={
-            "callback_query": {
-                "from": {"id": 502},
-                "message": {"chat": {"id": 1002}},
-                "data": "rel:romantic",
-            }
-        },
-    )
-    res = client.post(
-        "/telegram/webhook",
-        json={
-            "callback_query": {
-                "from": {"id": 502},
-                "message": {"chat": {"id": 1002}},
-                "data": "goal:avoid_needy",
-            }
-        },
-    )
     assert res.status_code == 200
-    assert "Ghost Mode" in sent[-1]["text"]
-    assert sent[-1]["reply_markup"] is None
+    # Ghost analysis still returns a card, but nothing is persisted.
+    assert "لنز غالب" in sent[-1]["text"]
+    with telegram_service.db() as conn:
+        user = conn.execute("SELECT id FROM users WHERE telegram_id = '502'").fetchone()
+        stored = conn.execute(
+            "SELECT COUNT(*) AS c FROM messages WHERE user_id = ?", (user["id"],)
+        ).fetchone()
+    assert stored["c"] == 0
+
+
+def test_telegram_forward_save_contact_and_memory_flow(monkeypatch):
+    sent = []
+
+    async def fake_send(chat_id, text, reply_markup=None):
+        sent.append({"chat_id": str(chat_id), "text": text, "reply_markup": reply_markup})
+
+    async def fake_action(chat_id, action="typing"):
+        return None
+
+    monkeypatch.setattr(telegram_service, "send_telegram_message", fake_send)
+    monkeypatch.setattr(telegram_service, "send_chat_action", fake_action)
+
+    def post(payload):
+        return client.post("/telegram/webhook", json=payload)
+
+    def last_kb():
+        return sent[-1]["reply_markup"]["inline_keyboard"]
+
+    # link account
+    post({"message": {"chat": {"id": 1003}, "from": {"id": 503}, "contact": {"user_id": 503, "phone_number": "09125550103"}}})
+
+    # forward #1 from نیلوفر → analysis card with save button (no memory yet)
+    post({
+        "message": {
+            "chat": {"id": 1003},
+            "from": {"id": 503},
+            "text": "نه بابا، مهم نیست. باشه یه وقت دیگه. می‌دونم سرت شلوغه.",
+            "forward_origin": {"type": "user", "sender_user": {"id": 999, "first_name": "نیلوفر"}},
+        }
+    })
+    assert "لنز غالب" in sent[-1]["text"]
+    callbacks = [b["callback_data"] for row in last_kb() for b in row if "callback_data" in b]
+    assert "n:save" in callbacks
+
+    # save → ask relationship (none set) → pick → note → done
+    post({"callback_query": {"from": {"id": 503}, "message": {"chat": {"id": 1003}}, "data": "n:save"}})
+    assert last_kb()[0][0]["callback_data"] == "save:yes"
+    post({"callback_query": {"from": {"id": 503}, "message": {"chat": {"id": 1003}}, "data": "save:yes"}})
+    assert last_kb()[0][0]["callback_data"].startswith("srel:")
+    post({"callback_query": {"from": {"id": 503}, "message": {"chat": {"id": 1003}}, "data": "srel:romantic"}})
+    assert last_kb()[0][0]["callback_data"].startswith("note:")
+    post({"callback_query": {"from": {"id": 503}, "message": {"chat": {"id": 1003}}, "data": "note:priority"}})
+    assert "حافظهٔ رابطه" in sent[-1]["text"]
+
+    # contact persisted in the shared web DB (parity)
+    with telegram_service.db() as conn:
+        user = conn.execute("SELECT id FROM users WHERE telegram_id = '503'").fetchone()
+        contact = conn.execute(
+            "SELECT name, relationship_type FROM contacts WHERE user_id = ? AND name = 'نیلوفر'",
+            (user["id"],),
+        ).fetchone()
+    assert contact is not None
+    assert contact["relationship_type"] == "romantic"
+
+    # forward #2 from نیلوفر with a date + phone → memory card + info extraction
+    sent.clear()
+    post({
+        "message": {
+            "chat": {"id": 1003},
+            "from": {"id": 503},
+            "text": "راستی جمعه ساعت ۸ شب خونهٔ ماست. شمارهٔ جدیدمم ۰۹۱۲۳۳۳۴۴۵۵ ـه.",
+            "forward_origin": {"type": "user", "sender_user": {"id": 999, "first_name": "نیلوفر"}},
+        }
+    })
+    joined = " ".join(m["text"] for m in sent)
+    assert "حافظهٔ رابطه" in joined  # memory badge on the card
+    assert "ذخیره در مخاطب" in joined  # phone info extracted
+    assert "یادآور" in joined  # date info extracted
+
+    # translate works off the stored free output
+    post({"callback_query": {"from": {"id": 503}, "message": {"chat": {"id": 1003}}, "data": "n:translate"}})
+    assert "ترجمهٔ زیرمتن" in sent[-1]["text"]
+
+    # personality uses the relationship memory now that the contact is saved
+    post({"callback_query": {"from": {"id": 503}, "message": {"chat": {"id": 1003}}, "data": "n:personality"}})
+    assert "نیلوفر" in sent[-1]["text"]
 
 
 def test_production_zarinpal_create_and_verify_shape(monkeypatch):

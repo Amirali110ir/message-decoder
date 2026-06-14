@@ -91,6 +91,13 @@ class Settings:
     )
     telegram_api_bypass_secret: str = field(default_factory=lambda: os.getenv("TELEGRAM_API_BYPASS_SECRET", ""))
     telegram_bridge_secret: str = field(default_factory=lambda: os.getenv("TELEGRAM_BRIDGE_SECRET", ""))
+    # Public web (Vercel) URL used by the Telegram bot's "open in web" button.
+    web_app_base_url: str = field(
+        default_factory=lambda: os.getenv(
+            "WEB_APP_BASE_URL",
+            "https://message-decoder-amirali6020s-projects.vercel.app",
+        )
+    )
     cors_origins: str = field(
         default_factory=lambda: os.getenv(
             "CORS_ORIGINS",

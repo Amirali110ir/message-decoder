@@ -46,6 +46,16 @@ export default {
         if (secret !== env.TELEGRAM_WEBHOOK_SECRET) return json({ ok: false }, 401);
       }
       const update = await request.json();
+      // Parity requirement (handoff §7): contacts/history/privacy must live in the
+      // SAME database as the web app. The rich design-handoff conversation runs on
+      // the FastAPI bot (Liara) which shares that DB, so delegate updates there.
+      // The Worker stays as the public webhook endpoint + Telegram relay.
+      if (env.LIARA_API_URL) {
+        const delegated = await delegateToLiara(update, env);
+        if (delegated) return json({ ok: true });
+        // If Liara is unreachable, fall back to the local lightweight flow below
+        // so onboarding never fully breaks during an outage.
+      }
       if (update.message) await handleMessage(update.message, env);
       if (update.callback_query) await handleCallback(update.callback_query, env);
       return json({ ok: true });
@@ -797,6 +807,24 @@ async function telegramApi(env, method, payload) {
   });
   if (!response.ok) throw new Error(`Telegram ${method} failed: ${response.status}`);
   return response.json();
+}
+
+async function delegateToLiara(update, env) {
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (env.TELEGRAM_WEBHOOK_SECRET) {
+      headers["X-Telegram-Bot-Api-Secret-Token"] = env.TELEGRAM_WEBHOOK_SECRET;
+    }
+    const response = await fetch(`${env.LIARA_API_URL.replace(/\/$/, "")}/telegram/webhook`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(update),
+    });
+    return response.ok;
+  } catch (error) {
+    console.log(`delegateToLiara error: ${error?.message || error}`);
+    return false;
+  }
 }
 
 async function syncLiaraTelegramLink(env, phone, telegramId) {
